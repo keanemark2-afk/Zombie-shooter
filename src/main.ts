@@ -1,8 +1,10 @@
 import './style.css';
 import { Vector3 } from 'three';
-import { Game } from './core/game';
+import type { Zone } from './combat/damage';
 import { tuning, type Tuning } from './config/tuning';
+import { Game } from './core/game';
 import { installErrorOverlay, showError } from './debug/errorOverlay';
+import type { LevelId } from './world/level';
 
 declare global {
   interface Window {
@@ -13,9 +15,11 @@ declare global {
       frames: () => number;
       ticks: () => number;
       screenStats: () => { mean: number; spread: number };
-      setView: (from: [number, number, number], to: [number, number, number]) => void;
-      cameraPosition: () => [number, number, number];
       renderInfo: () => { calls: number; triangles: number; programs: number };
+      start: (mode: LevelId) => void;
+      state: () => ReturnType<Game['debugState']>;
+      aimAt: (zone: Zone) => boolean;
+      view: (from: [number, number, number] | null, to?: [number, number, number]) => void;
     };
   }
 }
@@ -32,6 +36,8 @@ function webglAvailable(): boolean {
 
 const loading = document.getElementById('loading');
 const container = document.getElementById('app')!;
+// "?autotest" in the address: the automated test drives the game without capturing the mouse.
+const autotest = new URLSearchParams(location.search).has('autotest');
 
 if (!webglAvailable()) {
   loading?.remove();
@@ -44,8 +50,9 @@ if (!webglAvailable()) {
       '3. Restart the browser and double-click "Play Game.bat" again.',
   );
 } else {
-  const game = new Game(container);
+  const game = new Game(container, autotest);
   game.start();
+  if (autotest) (window as unknown as { __game: Game }).__game = game;
   loading?.remove();
   window.__deadAcre = {
     ready: true,
@@ -53,12 +60,14 @@ if (!webglAvailable()) {
     frames: () => game.frameCount,
     ticks: () => game.tickCount,
     screenStats: () => game.debugScreenStats(),
-    setView: (from, to) => game.debugSetView(new Vector3(...from), new Vector3(...to)),
-    cameraPosition: () => game.camera.position.toArray() as [number, number, number],
     renderInfo: () => ({
       calls: game.renderer.info.render.calls,
       triangles: game.renderer.info.render.triangles,
       programs: game.renderer.info.programs?.length ?? 0,
     }),
+    start: (mode) => game.startMode(mode),
+    state: () => game.debugState(),
+    aimAt: (zone) => game.debugAimAt(zone),
+    view: (from, to) => game.debugView(from ? new Vector3(...from) : null, to ? new Vector3(...to) : null),
   };
 }

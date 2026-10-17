@@ -12,21 +12,155 @@
  *
  *  Colours are written like '#ff8800' (red, green and blue amounts in hex).
  *  A note ending in [a to b] gives the slider range in the panel.
+ *  A note ending in [options: x, y, z] gives the choices in a drop-down list.
+ *  Angles are in degrees, times in seconds, distances in metres.
  * ==========================================================================
  */
 export const tuning = {
-  // The free-flying camera used in Phase 0 to look around the empty arena.
-  flyCamera: {
-    moveSpeed: 6, // How fast the camera flies, in metres per second. [1 to 30]
-    fastMultiplier: 3, // Holding Shift multiplies the flying speed by this much. [1 to 10]
-    lookSensitivity: 0.25, // How quickly the view turns when you drag the mouse. [0.05 to 1]
-    fov: 60, // Field of view in degrees. Bigger shows more of the world but looks more stretched. [40 to 100]
+  // Mouse, keyboard and gamepad feel.
+  controls: {
+    mouseSensitivity: 0.2, // How fast the camera turns when you move the mouse. [0.02 to 1]
+    aimSensitivity: 0.6, // Turning speed while aiming, compared with normal (1 = same speed). [0.1 to 1.5]
+    invertY: false, // Tick to flip the camera's up/down direction.
+    stickLookSpeed: 150, // How fast the right stick turns the camera, in degrees per second. [30 to 400]
+    stickDeadzone: 0.15, // How far a stick must move before it counts. Stops a worn stick drifting. [0 to 0.5]
+  },
+
+  // How the player character moves.
+  player: {
+    walkSpeed: 3.1, // Normal running-around speed. [0.5 to 8]
+    sprintSpeed: 5.4, // Speed while holding sprint. [1 to 12]
+    aimWalkSpeed: 1.25, // Speed while aiming in Modern aim mode. [0 to 4]
+    classicAim: false, // Tick for 2005-style aiming: feet planted while aiming. Untick for 2023-style slow walking while aiming.
+    acceleration: 14, // How quickly you reach full speed. Higher feels snappier. [2 to 40]
+    turnSpeed: 720, // How fast the character turns to face the way you run, in degrees per second. [90 to 1800]
+    quickTurnTime: 0.3, // How long the quick 180-degree turn takes. [0.1 to 1]
+    radius: 0.35, // Size of the player's body for bumping into things. [0.2 to 0.6]
+    hitStunTime: 0.55, // How long you are stunned (can't aim) after a zombie hits you. [0 to 2]
+  },
+
+  // The over-the-shoulder camera.
+  camera: {
+    fov: 62, // Field of view when not aiming. Bigger shows more. [40 to 100]
+    aimFov: 46, // Field of view while aiming (the push-in zoom). [20 to 90]
+    distance: 2.7, // How far behind the player the camera sits. [1 to 6]
+    height: 1.62, // How high the camera's pivot is (about shoulder height). [0.8 to 2.5]
+    shoulderOffset: 0.55, // How far to the right of the player the camera sits. [-1 to 1.5]
+    aimDistance: 1.45, // Camera distance behind the player while aiming. [0.4 to 4]
+    aimShoulderOffset: 0.72, // Camera offset to the right while aiming. [-1 to 1.5]
+    aimHeight: 1.66, // Camera pivot height while aiming. [0.8 to 2.5]
+    zoomTime: 0.13, // How long the camera takes to push in when you start aiming. [0.02 to 0.6]
+    lookDownLimit: 65, // How far down you can look. [10 to 89]
+    lookUpLimit: 55, // How far up you can look. [10 to 89]
+    wallPadding: 0.2, // How far the camera keeps from walls so they never block the view. [0 to 0.6]
+  },
+
+  // The starter pistol ("Kestrel 9").
+  pistol: {
+    damage: 100, // Firepower: damage per bullet before body-part multipliers. [10 to 1000]
+    fireInterval: 0.24, // Fire rate: minimum time between shots. Lower = faster. [0.05 to 1.5]
+    capacity: 10, // Bullets per magazine. [1 to 60]
+    reloadTime: 1.35, // Reload speed with bullets still in the gun. [0.2 to 5]
+    emptyReloadTime: 1.85, // Reload speed when the gun is completely empty (slide has to be racked). [0.2 to 6]
+    focusTime: 0.75, // How long the reticle takes to tighten fully while you hold still. [0.05 to 3]
+    spreadWide: 3.2, // Reticle size (aim wobble) when you first raise the gun, in degrees. [0.2 to 10]
+    spreadTight: 0.22, // Reticle size when fully focused. [0 to 3]
+    spreadMoving: 1.4, // Smallest reticle size while walking and aiming. [0 to 6]
+    fireBloom: 1.7, // How much each shot widens the reticle. [0 to 6]
+    turnBloom: 0.03, // How much the reticle widens per degree you swing the camera. [0 to 0.3]
+    swaySpeed: 1.7, // How fast the laser dot wanders inside the reticle. [0.1 to 6]
+    recoilKick: 1.6, // How far each shot kicks your aim upwards, in degrees. [0 to 8]
+    recoilSideways: 0.45, // Random sideways recoil per shot, in degrees. [0 to 4]
+    recoilRecovery: 9, // How quickly your aim settles back after recoil. Higher = faster. [1 to 30]
+    knockback: 0.15, // How hard a torso hit shoves a zombie back, in metres. [0 to 3]
+    pierce: 0, // How many extra zombies one bullet can pass through. [0 to 5]
+    maxRange: 120, // How far bullets travel. [10 to 400]
+    infiniteAmmo: true, // Spare ammo never runs out (handy for testing).
+    spareAmmo: 60, // Spare bullets you carry when infinite ammo is off. [0 to 500]
+  },
+
+  // Damage multipliers per body part.
+  damage: {
+    head: 2.5, // Headshot damage multiplier. [0 to 10]
+    torso: 1, // Body shot damage multiplier. [0 to 5]
+    arm: 0.6, // Arm shot damage multiplier. [0 to 5]
+    leg: 0.75, // Leg shot damage multiplier. [0 to 5]
+  },
+
+  // How zombies react to being shot in different places.
+  reactions: {
+    classicHeadStagger: true, // 2005 rules: a pistol headshot always staggers a basic zombie. Untick for remake-style random staggers.
+    remakeHeadStaggerChance: 0.35, // Chance a headshot staggers when the above is unticked (at a wide reticle). [0 to 1]
+    focusStaggerBonus: 0.45, // Extra stagger chance with a perfectly tight reticle (remake rules only). [0 to 1]
+    headStaggerTime: 1.5, // How long a head-staggered zombie clutches its face and stumbles. [0.2 to 4]
+    legKneelChance: 1, // Chance a leg shot drops a walking zombie to one knee. [0 to 1]
+    kneelTime: 1.8, // How long a zombie stays down on one knee. [0.3 to 5]
+    kneelSpinChance: 0.25, // Chance a kneeling zombie twists round and ends up facing away. [0 to 1]
+    tripTime: 2.6, // How long a tripped zombie lies on the ground before getting up. [0.5 to 8]
+    getUpTime: 0.9, // How long getting back up takes. [0.2 to 3]
+    armFlinchTime: 0.55, // How long an arm hit interrupts a zombie. [0.1 to 2]
+    torsoFlinchTime: 0.25, // How long a body shot makes a zombie flinch. [0 to 1.5]
+    knockbackThreshold: 0.6, // Knockback needed for a torso hit to shove a zombie back a step. [0 to 3]
+  },
+
+  // The basic zombie (the "Shambler").
+  zombie: {
+    health: 450, // Health points. A pistol body shot does 100. [50 to 5000]
+    walkSpeed: 1.05, // Normal shambling speed. [0.2 to 4]
+    runSpeed: 4.2, // Speed during a running burst. [1 to 9]
+    runChance: 0.12, // Chance each second (when 6+ metres away) that it breaks into a short run. [0 to 1]
+    runDuration: 1.8, // How long a running burst lasts. [0.3 to 6]
+    turnSpeed: 200, // How fast it turns towards you, in degrees per second. [20 to 900]
+    attackRange: 1.35, // How close it must be to swing at you. [0.5 to 3]
+    attackWindup: 0.75, // Warning time between raising its arms and swinging. [0.1 to 2]
+    attackRecover: 0.9, // Pause after a swing before it moves again. [0 to 3]
+    attackPush: 1.1, // How far a hit shoves you back (player health arrives in Phase 3). [0 to 4]
+    weaponChance: 0.45, // Chance a zombie carries a farm tool. Shoot its arm to make it drop it. [0 to 1]
+    corpseTime: 6, // How long bodies stay before sinking away. [0.5 to 60]
+    groanInterval: 5, // Average time between groans. [1 to 30]
+  },
+
+  // The shooting range test area.
+  range: {
+    dummyDistance: 12, // How far down the lane the dummy zombie stands. [3 to 40]
+    dummyBehavior: 'stand', // What the dummy does. "run" is for testing leg-shot trips. [options: stand, walk, pace, run]
+    dummyRespawnDelay: 2, // Seconds before a new dummy appears after one dies. [0 to 10]
+    dummyInvincible: false, // Tick to make the dummy unkillable, for practising reactions.
+    dummyHoldsWeapon: true, // The dummy carries a farm tool you can shoot out of its hand.
+  },
+
+  // The village zombie test.
+  village: {
+    zombieCount: 1, // How many zombies roam the village at once. [1 to 8]
+    respawnDelay: 3, // Seconds before a new zombie walks in after one dies. [0 to 20]
+  },
+
+  // Hit feedback: the "juice" that makes shooting feel good.
+  feel: {
+    hitStopHead: 0.04, // Tiny freeze on a headshot, in seconds. [0 to 0.2]
+    hitStopBody: 0, // Tiny freeze on other hits. [0 to 0.2]
+    hitStopKill: 0.07, // Tiny freeze on a killing shot. [0 to 0.3]
+    shakeShot: 0.12, // Camera shake when you fire. [0 to 1]
+    shakeHeadshot: 0.1, // Extra camera shake on a headshot. [0 to 1]
+    shakeHurt: 0.5, // Camera shake when a zombie hits you. [0 to 1]
+    hitMarkerTime: 0.22, // How long the hit marker stays on screen. [0 to 1]
+    bloodAmount: 1, // How much blood sprays from hits. 0 = none. [0 to 3]
+    shellLife: 8, // How long ejected bullet casings stay on the ground. [0 to 60]
+    decalLife: 30, // How long bullet holes and blood splats stay. [1 to 120]
+    muzzleFlash: 1, // Brightness of the muzzle flash. [0 to 3]
+  },
+
+  // Sound levels.
+  audio: {
+    masterVolume: 0.8, // Overall volume. [0 to 1]
+    effectsVolume: 1, // Gunshots, impacts and footsteps. [0 to 1]
+    voiceVolume: 1, // Zombie groans and grunts. [0 to 1]
   },
 
   // Sky, fog and lighting: the dusk mood of the village.
   atmosphere: {
-    fogColor: '#4f4b5c', // Colour of the fog that swallows the distance.
-    fogDensity: 0.02, // How thick the fog is. Higher means you can see less far. [0 to 0.08]
+    fogColor: '#4f4b5c', // Colour of the fog, and of the sky near the horizon.
+    fogDensity: 0, // How thick the fog is. 0 = no fog. Try 0.02 for a light mist. [0 to 0.08]
     skyTopColor: '#141826', // Colour of the sky straight overhead.
     sunGlowColor: '#c4613a', // Colour of the glow on the horizon where the sun has just set.
     sunGlowStrength: 0.9, // How bright that sunset glow is. [0 to 3]
@@ -71,6 +205,8 @@ export const tuning = {
   // Developer helpers.
   debug: {
     showColliders: false, // Draws yellow outlines around everything solid you will bump into.
+    showHitboxes: false, // Colours each zombie body part by hit zone (head, body, arms, legs).
+    flySpeed: 8, // Speed of the free-fly debug camera (F4). [1 to 40]
   },
 };
 

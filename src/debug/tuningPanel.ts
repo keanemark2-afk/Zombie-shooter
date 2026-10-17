@@ -99,7 +99,9 @@ export class TuningPanel {
       const note = notes.get(path);
       const target = obj as Record<string, unknown>;
       let controller: Controller;
-      if (typeof value === 'number') {
+      if (note?.options) {
+        controller = parent.add(target, key, note.options);
+      } else if (typeof value === 'number') {
         const { min, max, step } = sliderRange(value, note?.range);
         controller = parent.add(target, key, min, max, step);
       } else if (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)) {

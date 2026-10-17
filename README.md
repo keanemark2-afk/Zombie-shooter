@@ -4,7 +4,7 @@ An over-the-shoulder zombie arena shooter that plays like the classic survival-h
 action games: tight pistol gunplay, body-part hit reactions, kicks and suplexes,
 a trader between waves, and a score-attack mode. No story, just the fighting.
 
-**Status:** Phase 0 of 7 (an empty village arena to fly around). See `PROGRESS.md`.
+**Status:** Phase 1 of 7 (gunfeel: the pistol, one zombie type, a shooting range). See `PROGRESS.md`.
 
 ## How to play (Windows)
 
@@ -14,17 +14,18 @@ a trader between waves, and a score-attack mode. No story, just the fighting.
 
 If Node.js is missing, the launcher tells you exactly what to install.
 
-## Keys (Phase 0)
+## Controls
 
-| Key | Does |
-| --- | --- |
-| Hold mouse button + move | Look around |
-| W A S D | Fly |
-| Space / E, Q / C | Fly up, fly down |
-| Shift | Fly faster |
-| F1 | Tuning panel (change any number live, "Copy values" to share) |
-| F3 | FPS counter |
-| H | Hide / show the help box |
+| | Keyboard & mouse | PlayStation | Xbox |
+| --- | --- | --- | --- |
+| Move / look | W A S D / mouse | Left / right stick | Left / right stick |
+| Aim (laser sight) | Hold right mouse | Hold L2 | Hold LT |
+| Shoot (while aiming) | Left mouse | R2 | RT |
+| Reload | R | Square | X |
+| Sprint | Hold Shift | Hold Cross | Hold A |
+| Quick 180 turn | Hold S + tap Shift | Down + Cross | Down + A |
+| Menu / pause | Esc | Options | Menu |
+| Tuning panel / FPS | F1 / F3 | | |
 
 ## For developers
 
@@ -32,7 +33,7 @@ If Node.js is missing, the launcher tells you exactly what to install.
 npm install        # once
 npm run dev        # start the game at http://localhost:5173
 npm test           # unit tests
-npm run test:smoke # 30-second automated play test in a headless browser
+npm run test:smoke # automated play tests in a headless browser (~3 minutes)
 npm run check      # typecheck + all tests
 ```
 

@@ -274,3 +274,29 @@ export function crateTexture(): { color: Texture; bump: Texture } {
     return { rgb: c, height: h };
   });
 }
+
+/** A painted wooden board with hand-lettered text, e.g. "10 m" on the shooting range. */
+export function signTexture(text: string): Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#b5aa90';
+  ctx.fillRect(0, 0, 256, 128);
+  const rand = seededRandom(text.length * 97 + text.charCodeAt(0));
+  for (let i = 0; i < 400; i++) {
+    ctx.fillStyle = `rgba(60, 45, 30, ${rand() * 0.12})`;
+    ctx.fillRect(rand() * 256, rand() * 128, 2 + rand() * 30, 1 + rand() * 2);
+  }
+  ctx.fillStyle = 'rgba(40, 28, 18, 0.5)';
+  ctx.fillRect(0, 62, 256, 3);
+  ctx.fillStyle = '#2a1d14';
+  ctx.font = 'bold 72px Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 128, 68);
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}

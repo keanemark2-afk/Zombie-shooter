@@ -3,8 +3,8 @@ import { tuning } from '../config/tuning';
 import type { Input } from './input';
 
 /**
- * Phase 0 free-flying camera: hold a mouse button and drag to look around,
- * WASD to fly, Space / E to rise, Q / C to sink, Shift to go faster.
+ * Debug free-flying camera (F4): move the mouse to look around, WASD to fly,
+ * Space / E to rise, Q / C to sink, Shift to go faster.
  * (Ctrl is avoided on purpose: Ctrl+W closes the browser tab.)
  * It gets replaced by the over-the-shoulder camera in Phase 1.
  */
@@ -34,10 +34,10 @@ export class FlyCamera {
   }
 
   update(dt: number): void {
-    const t = tuning.flyCamera;
+    const flySpeed = tuning.debug.flySpeed;
     const { dx, dy } = this.input.takeMouseDelta();
-    if (this.input.anyMouseDown()) {
-      const turn = t.lookSensitivity * 0.01;
+    if (this.input.pointerLocked || this.input.anyMouseDown()) {
+      const turn = 0.0025;
       this.yaw -= dx * turn;
       this.pitch -= dy * turn;
     }
@@ -60,7 +60,7 @@ export class FlyCamera {
     if (wish.lengthSq() > 0) wish.normalize();
 
     const fast = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight');
-    const speed = t.moveSpeed * (fast ? t.fastMultiplier : 1);
+    const speed = flySpeed * (fast ? 3 : 1);
     // Ease towards the wanted speed so starting and stopping feel smooth.
     const blend = 1 - Math.exp(-10 * dt);
     this.velocity.lerp(wish.multiplyScalar(speed), blend);
@@ -72,9 +72,5 @@ export class FlyCamera {
     p.y = MathUtils.clamp(p.y, this.groundHeight(p.x, p.z) + 0.4, 40);
 
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
-    if (this.camera.fov !== t.fov) {
-      this.camera.fov = t.fov;
-      this.camera.updateProjectionMatrix();
-    }
   }
 }

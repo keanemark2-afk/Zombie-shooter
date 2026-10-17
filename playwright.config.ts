@@ -4,13 +4,13 @@ const PORT = 5199;
 
 export default defineConfig({
   testDir: 'tests/smoke',
-  timeout: 300_000,
+  timeout: 600_000,
   expect: { timeout: 15_000 },
   reporter: 'list',
   outputDir: 'test-results',
   use: {
     baseURL: `http://localhost:${PORT}`,
-    viewport: { width: 1280, height: 720 },
+    viewport: { width: 960, height: 540 },
     launchOptions: {
       // Headless Chromium has no graphics card, so WebGL runs on the CPU (SwiftShader).
       args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],

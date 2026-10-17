@@ -31,9 +31,12 @@ describe('tuning.ts', () => {
     }
   });
 
-  it('writes colours as 6-digit hex codes', () => {
+  it('writes text values as 6-digit colours or as one of the listed options', () => {
     for (const [path, value] of flattenValues(tuning)) {
-      if (typeof value === 'string') expect(value, path).toMatch(/^#[0-9a-f]{6}$/i);
+      if (typeof value !== 'string') continue;
+      const options = parsed.values.get(path)?.options;
+      if (options) expect(options, path).toContain(value);
+      else expect(value, path).toMatch(/^#[0-9a-f]{6}$/i);
     }
   });
 });
@@ -45,6 +48,7 @@ export const tuning = {
   player: {
     speed: 5, // How fast you walk. [1 to 10]
     colour: '#ff0000', // Jacket colour.
+    mode: 'calm', // How it behaves. [options: calm, angry , sad]
     secret: 3,
     inner: {
       flag: true, // A switch.
@@ -64,6 +68,11 @@ export const other = { ignored: 1 };
   it('reads slider ranges from [a to b]', () => {
     expect(parsed.values.get('player.speed')?.range).toEqual({ min: 1, max: 10 });
     expect(parsed.values.get('player.colour')?.range).toBeUndefined();
+  });
+
+  it('reads drop-down choices from [options: ...]', () => {
+    expect(parsed.values.get('player.mode')?.options).toEqual(['calm', 'angry', 'sad']);
+    expect(parsed.values.get('player.speed')?.options).toBeUndefined();
   });
 
   it('reads group notes from the line above a group', () => {

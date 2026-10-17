@@ -6,6 +6,8 @@ export type TuningValue = number | string | boolean;
 export interface TuningNote {
   comment: string;
   range?: { min: number; max: number };
+  /** Choices for a drop-down list, from "[options: a, b, c]". */
+  options?: string[];
 }
 
 export interface ParsedTuningSource {
@@ -22,6 +24,7 @@ const GROUP_CLOSE = /^\s*\}\s*,?\s*;?\s*$/;
 const VALUE_LINE = /^\s*(\w+)\s*:\s*([^/]+?)\s*,?\s*(?:\/\/\s*(.*))?$/;
 const LINE_COMMENT = /^\s*\/\/\s*(.*)$/;
 const RANGE_HINT = /\[\s*(-?[\d.]+)\s+to\s+(-?[\d.]+)\s*\]\s*$/;
+const OPTIONS_HINT = /\[\s*options:\s*([^\]]+)\]\s*$/i;
 
 /** Reads the source text of tuning.ts and pulls out the note for every value. */
 export function parseTuningSource(source: string): ParsedTuningSource {
@@ -69,6 +72,8 @@ export function parseTuningSource(source: string): ParsedTuningSource {
         const note: TuningNote = { comment };
         const hint = RANGE_HINT.exec(comment);
         if (hint) note.range = { min: Number(hint[1]), max: Number(hint[2]) };
+        const options = OPTIONS_HINT.exec(comment);
+        if (options) note.options = options[1].split(',').map((o) => o.trim()).filter(Boolean);
         values.set(path, note);
       }
     }

@@ -25,6 +25,7 @@ import {
   crateTexture,
   plankTexture,
   plasterTexture,
+  signTexture,
   seededRandom,
   shingleTexture,
   stoneTexture,
@@ -93,47 +94,69 @@ export interface Lamp {
   flicker: number;
 }
 
+/** What a surface is made of, so bullets can make the right sound and puff. */
+export type Surface = 'wood' | 'stone' | 'dirt' | 'metal' | 'plaster' | 'straw' | 'glass';
+
+function makePropMaterials() {
+  const planks = plankTexture('#6d5038', 6, 3);
+  const darkPlanks = plankTexture('#4a3627', 5, 8);
+  const crate = crateTexture();
+  const stone = stoneTexture();
+  const plaster = plasterTexture();
+  const shingles = shingleTexture();
+  const straw = strawTexture();
+  const barrel = barrelTexture();
+  const std = (surface: Surface, params: ConstructorParameters<typeof MeshStandardMaterial>[0]) => {
+    const mat = new MeshStandardMaterial({ roughness: 0.92, metalness: 0, ...params });
+    mat.userData.surface = surface;
+    return mat;
+  };
+  return {
+    wood: std('wood', { map: planks.color, bumpMap: planks.bump, bumpScale: 1.5 }),
+    darkWood: std('wood', { map: darkPlanks.color, bumpMap: darkPlanks.bump, bumpScale: 1.5 }),
+    timber: std('wood', { color: '#3a2b20' }),
+    crate: std('wood', { map: crate.color, bumpMap: crate.bump, bumpScale: 2 }),
+    stone: std('stone', { map: stone.color, bumpMap: stone.bump, bumpScale: 3 }),
+    stoneInside: std('stone', { map: stone.color, color: '#555', side: BackSide }),
+    plaster: std('plaster', { map: plaster.color, bumpMap: plaster.bump, bumpScale: 1 }),
+    shingles: std('wood', { map: shingles.color, bumpMap: shingles.bump, bumpScale: 2 }),
+    straw: std('straw', { map: straw.color, bumpMap: straw.bump, bumpScale: 2 }),
+    barrel: std('metal', { map: barrel.color, bumpMap: barrel.bump, bumpScale: 1, roughness: 0.6, metalness: 0.35 }),
+    metal: std('metal', { color: '#2b2826', roughness: 0.5, metalness: 0.7 }),
+    water: std('stone', { color: '#07090b', roughness: 0.08 }),
+    darkGlass: std('glass', { color: '#141a22', roughness: 0.25, metalness: 0.2 }),
+    rope: std('wood', { color: '#7d6a4c' }),
+    paint: std('wood', { color: '#b9b09a' }),
+  };
+}
+
+let sharedMaterials: ReturnType<typeof makePropMaterials> | null = null;
+
+/** Prop materials are painted once and shared by every level. */
+export function propMaterials(): ReturnType<typeof makePropMaterials> {
+  sharedMaterials ??= makePropMaterials();
+  return sharedMaterials;
+}
+
 export class PropBuilder {
   readonly colliders: Collider[] = [];
   readonly lamps: Lamp[] = [];
-  private readonly rand = seededRandom(1234);
+  private readonly rand: () => number;
+  readonly mats = propMaterials();
 
-  readonly mats = (() => {
-    const planks = plankTexture('#6d5038', 6, 3);
-    const darkPlanks = plankTexture('#4a3627', 5, 8);
-    const crate = crateTexture();
-    const stone = stoneTexture();
-    const plaster = plasterTexture();
-    const shingles = shingleTexture();
-    const straw = strawTexture();
-    const barrel = barrelTexture();
-    const std = (params: ConstructorParameters<typeof MeshStandardMaterial>[0]) =>
-      new MeshStandardMaterial({ roughness: 0.92, metalness: 0, ...params });
-    return {
-      wood: std({ map: planks.color, bumpMap: planks.bump, bumpScale: 1.5 }),
-      darkWood: std({ map: darkPlanks.color, bumpMap: darkPlanks.bump, bumpScale: 1.5 }),
-      timber: std({ color: '#3a2b20' }),
-      crate: std({ map: crate.color, bumpMap: crate.bump, bumpScale: 2 }),
-      stone: std({ map: stone.color, bumpMap: stone.bump, bumpScale: 3 }),
-      stoneInside: std({ map: stone.color, color: '#555', side: BackSide }),
-      plaster: std({ map: plaster.color, bumpMap: plaster.bump, bumpScale: 1 }),
-      shingles: std({ map: shingles.color, bumpMap: shingles.bump, bumpScale: 2 }),
-      straw: std({ map: straw.color, bumpMap: straw.bump, bumpScale: 2 }),
-      barrel: std({ map: barrel.color, bumpMap: barrel.bump, bumpScale: 1, roughness: 0.6, metalness: 0.35 }),
-      metal: std({ color: '#2b2826', roughness: 0.5, metalness: 0.7 }),
-      water: std({ color: '#07090b', roughness: 0.08 }),
-      darkGlass: std({ color: '#141a22', roughness: 0.25, metalness: 0.2 }),
-      rope: std({ color: '#7d6a4c' }),
-    };
-  })();
+  constructor(seed = 1234) {
+    this.rand = seededRandom(seed);
+  }
 
   private glowMaterial(): MeshStandardMaterial {
-    return new MeshStandardMaterial({
+    const mat = new MeshStandardMaterial({
       color: '#000000',
       emissive: new Color(tuning.atmosphere.lampColor),
       emissiveIntensity: 3,
       roughness: 1,
     });
+    mat.userData.surface = 'glass';
+    return mat;
   }
 
   private boxCollider(x: number, z: number, w: number, d: number, rotY: number, height: number, tag: ColliderTag = 'solid'): void {
@@ -484,5 +507,50 @@ export class PropBuilder {
     const sin = Math.sin(rotY);
     this.addLamp(parent, glow, new Vector3(x + 0.6 * cos, 2.3, z - 0.6 * sin), 1);
     this.circleCollider(x, z, 0.15, 2.9);
+  }
+
+  /** A solid wall of vertical planks from (ax, az) to (bx, bz). */
+  plankWall(parent: Object3D, ax: number, az: number, bx: number, bz: number, height: number): void {
+    const length = Math.hypot(bx - ax, bz - az);
+    const angle = Math.atan2(bx - ax, bz - az);
+    const cx = (ax + bx) / 2;
+    const cz = (az + bz) / 2;
+    place(parent, box(0.12, height, length, 2.2), this.mats.wood, cx, height / 2, cz, { rotY: angle });
+    const posts = Math.max(2, Math.round(length / 3) + 1);
+    for (let i = 0; i < posts; i++) {
+      const t = i / (posts - 1);
+      place(parent, box(0.2, height + 0.15, 0.2), this.mats.darkWood, ax + (bx - ax) * t, (height + 0.15) / 2, az + (bz - az) * t, {
+        rotY: angle,
+      });
+    }
+    this.boxCollider(cx, cz, 0.3, length, angle, height);
+  }
+
+  /** A painted board on a post, e.g. a distance marker. The text faces local +z. */
+  sign(parent: Object3D, x: number, z: number, rotY: number, text: string): void {
+    const g = new Group();
+    g.position.set(x, 0, z);
+    g.rotation.y = rotY;
+    parent.add(g);
+    place(g, box(0.12, 1.5, 0.12), this.mats.darkWood, 0, 0.75, 0);
+    const board = new MeshStandardMaterial({ map: signTexture(text), roughness: 0.9 });
+    board.userData.surface = 'wood';
+    place(g, new BoxGeometry(0.9, 0.45, 0.05), board, 0, 1.45, 0.08);
+    this.circleCollider(x, z, 0.12, 1.5);
+  }
+
+  /** A rough wooden table. */
+  table(parent: Object3D, x: number, z: number, rotY: number): void {
+    const g = new Group();
+    g.position.set(x, 0, z);
+    g.rotation.y = rotY;
+    parent.add(g);
+    place(g, box(1.6, 0.08, 0.8, 1.2), this.mats.wood, 0, 0.82, 0);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      place(g, box(0.08, 0.8, 0.08), this.mats.darkWood, sx * 0.7, 0.4, sz * 0.32);
+    }
+    place(g, new BoxGeometry(0.35, 0.18, 0.22), this.mats.crate, -0.4, 0.95, 0.05, { rotY: 0.2 });
+    place(g, new BoxGeometry(0.3, 0.16, 0.2), this.mats.metal, 0.3, 0.94, -0.1, { rotY: -0.3 });
+    this.boxCollider(x, z, 1.6, 0.8, rotY, 0.86);
   }
 }

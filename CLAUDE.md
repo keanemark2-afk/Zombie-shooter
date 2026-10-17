@@ -24,3 +24,14 @@ The full brief is the user's original prompt; key rules are repeated here.
   must stay separate (barrels, crates, enemies) with `userData.dynamic = true`.
 - Headless Chromium renders with SwiftShader (~1-3 fps); smoke tests must wait on frame
   counts (`window.__deadAcre`) rather than fixed timeouts.
+- Open the game with `?autotest` for automation: no pointer lock, and `window.__deadAcre`
+  offers `start(mode)`, `state()`, `aimAt(zone)`, `view(from, to)` (free camera) and
+  `tuning`; `window.__game` is the Game instance. Wait for reticle focus before testing
+  where a shot lands (the laser dot sways inside the reticle).
+- Characters face -z; joint rotation +x swings a limb forward and tilts the spine/head
+  back. Body-part meshes are the hitboxes (`userData.zone`). Never add/remove lights at
+  runtime (it rebuilds every shader): keep them and set intensity 0 instead.
+- Elements toggled with the `hidden` attribute rely on the global `[hidden]` CSS rule.
+- Dispose geometries of removed zombies/props (materials are shared caches).
+- Game world updates at a fixed 60 Hz (`tick`), drawing interpolates positions (`render`).
+  Hit-stop freezes ticks only.

@@ -55,6 +55,24 @@ const GradeShader = {
   `,
 };
 
+/**
+ * Safety step before the glow: an extremely bright (or broken) pixel would
+ * otherwise get blurred into a huge white blob across the screen.
+ */
+const SanitizeShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: GradeShader.vertexShader,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+      gl_FragColor = vec4(clamp(c.rgb, 0.0, 32.0), c.a);
+    }
+  `,
+};
+
 /** The chain of screen effects drawn after the 3D scene. */
 export class PostFx {
   private readonly composer: EffectComposer;
@@ -71,6 +89,7 @@ export class PostFx {
     const target = new WebGLRenderTarget(size.x, size.y, { type: HalfFloatType, samples: 4 });
     this.composer = new EffectComposer(renderer, target);
     this.composer.addPass(new RenderPass(scene, camera));
+    this.composer.addPass(new ShaderPass(SanitizeShader));
     this.bloom = new UnrealBloomPass(new Vector2(size.x, size.y), 0.5, 0.5, 0.85);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
