@@ -1,0 +1,31 @@
+{
+  "name": "dead-acre",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Dead Acre - an over-the-shoulder zombie arena shooter.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "start": "vite --open",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:smoke": "playwright test",
+    "check": "npm run typecheck && npm run test && npm run test:smoke"
+  },
+  "dependencies": {
+    "lil-gui": "0.21.0",
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "22.20.4",
+    "@types/three": "0.185.4",
+    "typescript": "5.9.3",
+    "vite": "7.3.6",
+    "vitest": "3.2.4"
+  }
+}
