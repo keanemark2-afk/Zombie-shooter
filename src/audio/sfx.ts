@@ -1,6 +1,7 @@
 import { Vector3, type Camera } from 'three';
 import type { ZoneGroup } from '../combat/damage';
 import type { GunEvent, WeaponDef } from '../combat/weapons';
+import { settings } from '../config/settings';
 import { tuning } from '../config/tuning';
 import type { ZombieVoice } from '../enemies/zombie';
 import type { Surface } from '../world/props';
@@ -29,6 +30,19 @@ interface ToneOpts {
   delay?: number;
 }
 
+/**
+ * Real recordings (CC0, see CREDITS.md). Each name lists its variations; one is
+ * picked at random every time so repeated shots don't sound identical.
+ */
+const SAMPLES: Record<string, string[]> = {
+  pistol: ['pistol-1', 'pistol-2'],
+  pump: ['pump-1', 'pump-2'],
+  drum: ['drum-1', 'drum-2'],
+  revolver: ['revolver-1', 'revolver-2'],
+  pumpRack: ['pump-rack'],
+  shellIn: ['shell-in'],
+};
+
 const forward = new Vector3();
 const up = new Vector3();
 
@@ -40,6 +54,7 @@ export class Sfx implements ZombieVoice {
   private reverbSend!: GainNode;
   private noise!: AudioBuffer;
   private shaper!: WaveShaperNode;
+  private readonly samples = new Map<string, AudioBuffer[]>();
 
   /** Browsers only allow sound after a click or key press; call this from one. */
   unlock(): void {
@@ -98,6 +113,74 @@ export class Sfx implements ZombieVoice {
     }
     this.shaper.curve = curve;
     this.setVolumes();
+    void this.loadSamples();
+  }
+
+  /** Fetches and decodes the recorded sounds in the background. */
+  private async loadSamples(): Promise<void> {
+    const ctx = this.ctx!;
+    const base = import.meta.env.BASE_URL;
+    await Promise.all(
+      Object.entries(SAMPLES).map(async ([key, files]) => {
+        const buffers: AudioBuffer[] = [];
+        for (const f of files) {
+          try {
+            const res = await fetch(`${base}sounds/${f}.ogg`);
+            if (!res.ok) continue;
+            buffers.push(await ctx.decodeAudioData(await res.arrayBuffer()));
+          } catch {
+            // A sound that can't load falls back to the generated version.
+          }
+        }
+        if (buffers.length) this.samples.set(key, buffers);
+      }),
+    );
+  }
+
+  /** How many recorded sounds are loaded (for tests). */
+  get samplesLoaded(): number {
+    return this.samples.size;
+  }
+
+  /**
+   * Plays a recorded sound with a little random pitch and volume so repeats
+   * vary. Returns false if it isn't loaded (the caller then uses the synth).
+   */
+  private playSample(
+    key: string,
+    o: { gain: number; pos?: Vector3 | null; echo?: number; lowBoost?: number; presence?: number; pitch?: number },
+  ): boolean {
+    const list = this.samples.get(key);
+    if (!list || !this.ctx) return false;
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = list[Math.floor(Math.random() * list.length)];
+    src.playbackRate.value = (o.pitch ?? 1) * (0.97 + Math.random() * 0.06);
+    let node: AudioNode = src;
+    // Extra weight in the low end and bite in the mids: the heavy, punchy game-gun sound.
+    if (o.lowBoost) {
+      const low = ctx.createBiquadFilter();
+      low.type = 'lowshelf';
+      low.frequency.value = 160;
+      low.gain.value = o.lowBoost;
+      node.connect(low);
+      node = low;
+    }
+    if (o.presence) {
+      const mid = ctx.createBiquadFilter();
+      mid.type = 'peaking';
+      mid.frequency.value = 2400;
+      mid.Q.value = 0.8;
+      mid.gain.value = o.presence;
+      node.connect(mid);
+      node = mid;
+    }
+    const g = ctx.createGain();
+    g.gain.value = o.gain * (0.9 + Math.random() * 0.2);
+    node.connect(g);
+    g.connect(this.output(o.pos ?? null, this.fxBus, o.echo ?? 0.2));
+    src.start();
+    return true;
   }
 
   setVolumes(): void {
@@ -273,8 +356,21 @@ export class Sfx implements ZombieVoice {
 
   /** The right bang for the gun in your hands. */
   shot(kind: WeaponDef['sound']): void {
+    if (!this.ready) return;
+    if (settings.gunshotSound === 'recorded' && this.recordedShot(kind)) return;
     if (kind === 'pistol') this.gunshot();
     else this.shotgunBlast(kind === 'shotgun');
+  }
+
+  /** A real recorded gunshot, made punchier with a low thump layered underneath. */
+  private recordedShot(kind: WeaponDef['sound']): boolean {
+    const key = kind === 'pistol' ? 'pistol' : kind === 'shotgun' ? 'pump' : 'drum';
+    const shotgun = kind !== 'pistol';
+    const played = this.playSample(key, { gain: shotgun ? 1.1 : 1.0, echo: shotgun ? 0.35 : 0.28, lowBoost: shotgun ? 5 : 4, presence: 2 });
+    if (!played) return false;
+    const out = this.output(null, this.fxBus, 0);
+    this.tone(out, shotgun ? 0.2 : 0.12, { freq: shotgun ? 90 : 120, freqEnd: 38, gain: shotgun ? 0.55 : 0.4, attack: 0.001 });
+    return true;
   }
 
   /** A deep, rolling shotgun boom. `heavy` = pump gun (bigger and longer). */
@@ -328,6 +424,7 @@ export class Sfx implements ZombieVoice {
         this.tone(out, 0.06, { freq: 900, freqEnd: 600, gain: 0.08, delay: 0.09 });
         break;
       case 'pump':
+        if (settings.gunshotSound === 'recorded' && this.playSample('pumpRack', { gain: 0.8, echo: 0.06 })) break;
         // Clack (back) ... clack (forward).
         this.burst(out, 0.07, { filter: 'bandpass', freq: 1300, q: 2, gain: 0.6 });
         this.burst(out, 0.02, { filter: 'highpass', freq: 3500, gain: 0.3, delay: 0.01 });
@@ -335,6 +432,7 @@ export class Sfx implements ZombieVoice {
         this.burst(out, 0.04, { filter: 'lowpass', freq: 900, gain: 0.45, delay: 0.15 });
         break;
       case 'shellIn':
+        if (settings.gunshotSound === 'recorded' && this.playSample('shellIn', { gain: 0.75, echo: 0.04 })) break;
         this.burst(out, 0.05, { filter: 'bandpass', freq: 1100, q: 1.5, gain: 0.35 });
         this.burst(out, 0.015, { filter: 'bandpass', freq: 3600, q: 4, gain: 0.35, delay: 0.045 });
         break;

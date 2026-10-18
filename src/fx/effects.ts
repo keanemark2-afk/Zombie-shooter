@@ -303,19 +303,21 @@ export class Effects {
     this.casings[kind].eject(at, right);
   }
 
-  /** Shows the laser from `start` to `end`. `dot` puts the red dot on whatever it hits. */
+  /**
+   * Shows the laser line from `start` to `end` (pass nulls to hide it) and the
+   * red dot at `dot` (null hides the dot).
+   */
   setLaser(start: Vector3 | null, end: Vector3 | null, dot: Vector3 | null): void {
-    if (!start || !end) {
+    if (start && end) {
+      v.subVectors(end, start);
+      const length = v.length();
+      this.laserBeam.visible = length > 0.01;
+      this.laserBeam.position.copy(start);
+      this.laserBeam.quaternion.setFromUnitVectors(UP, v.normalize());
+      this.laserBeam.scale.set(1, length, 1);
+    } else {
       this.laserBeam.visible = false;
-      this.laserDot.visible = false;
-      return;
     }
-    v.subVectors(end, start);
-    const length = v.length();
-    this.laserBeam.visible = length > 0.01;
-    this.laserBeam.position.copy(start);
-    this.laserBeam.quaternion.setFromUnitVectors(UP, v.normalize());
-    this.laserBeam.scale.set(1, length, 1);
     this.laserDot.visible = dot !== null;
     if (dot) this.laserDot.position.copy(dot);
   }

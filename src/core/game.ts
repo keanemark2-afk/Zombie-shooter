@@ -18,6 +18,7 @@ import { resolveShot, zoneGroup, type HitResult, type PelletHit, type Zone } fro
 import { blastPush, falloff, randomInCone } from '../combat/pellets';
 import { WEAPONS } from '../combat/weapons';
 import { PAD } from '../config/controls';
+import { settings } from '../config/settings';
 import { tuning } from '../config/tuning';
 import { showError } from '../debug/errorOverlay';
 import { FpsCounter } from '../debug/fpsCounter';
@@ -634,7 +635,9 @@ export class Game {
         const zh = this.castZombies(laserPos, toAim, wall ? wall.distance : d + 0.3);
         const end = zh.length ? zh[0].point : wall ? wall.point : aim.point;
         const hitSomething = zh.length > 0 || wall !== null || d < this.player.stats.maxRange - 1;
-        this.fx.setLaser(laserPos, end, hitSomething ? end : null);
+        const beam = settings.laserBeam && settings.crosshair !== 'none';
+        const dot = hitSomething && settings.crosshair !== 'none' ? end : null;
+        this.fx.setLaser(beam ? laserPos : null, beam ? end : null, dot);
       } else {
         this.fx.setLaser(null, null, null);
       }
@@ -686,7 +689,9 @@ export class Game {
       if (this.paused && this.mode) this.resume();
       else this.pause();
     }
-    if (this.menu.visible) {
+    if (this.menu.visible && this.menu.settingsOpen) {
+      if (this.pad.wasPressed(PAD.east)) this.menu.closeSettings();
+    } else if (this.menu.visible) {
       if (this.pad.wasPressed(PAD.south)) this.choose(this.paused && this.mode ? 'resume' : 'range');
       if (this.pad.wasPressed(PAD.west)) this.choose('range');
       if (this.pad.wasPressed(PAD.north)) this.choose('village');
@@ -768,6 +773,11 @@ export class Game {
     if (from && to) this.flyCamera.lookFrom(from, to);
   }
 
+  /** For screenshots: switch crosshair style without the menu. */
+  debugSettings(crosshair: typeof settings.crosshair): void {
+    settings.crosshair = crosshair;
+  }
+
   debugState() {
     return {
       mode: this.mode,
@@ -783,6 +793,8 @@ export class Game {
       stats: { ...this.stats },
       zombies: this.zombies.map((z) => ({ state: z.state, health: z.health, alive: z.alive, holdingTool: z.holdingTool, behavior: z.behavior })),
       audioRunning: this.sfx.ready,
+      soundsLoaded: this.sfx.samplesLoaded,
+      crosshair: settings.crosshair,
       padConnected: this.pad.connected,
       padType: this.pad.type,
       lastDevice: this.controls.lastDevice,

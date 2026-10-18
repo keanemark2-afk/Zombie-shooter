@@ -107,10 +107,23 @@ test('shooting range: aiming, reactions, reload and respawn', async ({ page }) =
   expect(stats.mean, 'screen is too dark - is anything rendering?').toBeGreaterThan(0.03);
   expect(stats.spread, 'screen is one flat colour - is anything rendering?').toBeGreaterThan(0.02);
 
+  // Settings: pick the corner-brackets crosshair in yellow, then go back.
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.locator('.menu-settings')).toBeVisible();
+  await expect(page.locator('.menu-settings .crosshairs svg')).toHaveCount(6);
+  await page.getByRole('button', { name: /Brackets$/ }).click();
+  await page.getByRole('button', { name: 'Yellow' }).click();
+  await expect(page.locator('[data-crosshair="brackets"]')).toHaveClass(/on/);
+  await expect(page.locator('.set-preview polyline')).toHaveCount(4);
+  await page.getByRole('button', { name: 'Back' }).click();
+  await expect(page.locator('.menu-settings')).toBeHidden();
+  expect((await state(page)).crosshair).toBe('brackets');
+
   await page.getByRole('button', { name: 'Shooting range' }).click();
   await expect(page.locator('.menu')).toBeHidden();
-  // Clicking the menu switches the sound on (every sound is generated live).
+  // Clicking the menu switches the sound on, and the recorded gunshots load.
   await expect.poll(async () => (await state(page)).audioRunning).toBe(true);
+  await expect.poll(async () => (await state(page)).soundsLoaded, { timeout: 60_000 }).toBe(6);
   await expect(page.locator('.ammo')).toBeVisible();
   expect((await state(page)).mode).toBe('range');
   await page.evaluate(() => (window.__deadAcre!.tuning.range.dummyDistance = 8));
@@ -123,6 +136,13 @@ test('shooting range: aiming, reactions, reload and respawn', async ({ page }) =
   expect(Math.hypot(moved[0] - startPos[0], moved[2] - startPos[2]), 'W should walk forward').toBeGreaterThan(0.2);
 
   // Headshot: a basic zombie always staggers (classic rules).
+  // The chosen crosshair shows while aiming.
+  await page.mouse.down({ button: 'right' });
+  await waitForFrames(page, 3);
+  await expect(page.locator('.hud .crosshair polyline')).toHaveCount(4);
+  await expect(page.locator('.hud .crosshair')).toBeVisible();
+  await page.mouse.up({ button: 'right' });
+
   let s = await shootAt(page, 'head');
   expect(s.stats.headshots).toBe(1);
   expect(s.stats.lastHit).toContain('HEAD');

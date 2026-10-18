@@ -31,6 +31,12 @@ The full brief is the user's original prompt; key rules are repeated here.
 - Characters face -z; joint rotation +x swings a limb forward and tilts the spine/head
   back. Body-part meshes are the hitboxes (`userData.zone`). Never add/remove lights at
   runtime (it rebuilds every shader): keep them and set intensity 0 instead.
+- Player preferences (crosshair style/colour/size, laser beam, gunshot sound) live in
+  `src/config/settings.ts` (localStorage, try/catch) and are edited in menu > Settings;
+  gameplay numbers stay in tuning. The crosshair is an SVG drawn by `src/ui/crosshair.ts`.
+- Recorded sounds (CC0, listed in `CREDITS.md`) are OGG files in `public/sounds/`, made by
+  `tools/make_sounds.py` (numpy + ffmpeg). Played via `Sfx.playSample`; the old synth
+  gunshots remain as the "Old generated sound" option. Credit every new file.
 - Elements toggled with the `hidden` attribute rely on the global `[hidden]` CSS rule.
 - Dispose geometries of removed zombies/props (materials are shared caches).
 - Weapons: definitions + ammo/pump/reload state machine in `src/combat/weapons.ts`

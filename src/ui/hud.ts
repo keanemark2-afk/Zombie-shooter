@@ -1,4 +1,6 @@
 import type { ZoneGroup } from '../combat/damage';
+import { settings } from '../config/settings';
+import { Crosshair } from './crosshair';
 
 export interface RangeStats {
   shots: number;
@@ -11,7 +13,7 @@ export interface RangeStats {
 /** Everything drawn flat on the screen during play. */
 export class Hud {
   readonly root: HTMLDivElement;
-  private readonly reticle: HTMLDivElement;
+  private readonly crosshair = new Crosshair();
   private readonly marker: HTMLDivElement;
   private readonly hurt: HTMLDivElement;
   private readonly ammoLoaded: HTMLSpanElement;
@@ -32,7 +34,6 @@ export class Hud {
     this.root.className = 'hud';
     this.root.innerHTML = `
       <div class="hurt-flash"></div>
-      <div class="reticle"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
       <div class="hit-marker"><i></i><i></i></div>
       <div class="weapon-strip"></div>
       <div class="ammo">
@@ -44,7 +45,7 @@ export class Hud {
       <div class="play-hint"></div>`;
     document.body.appendChild(this.root);
     const q = <T extends HTMLElement>(sel: string) => this.root.querySelector(sel) as T;
-    this.reticle = q('.reticle');
+    this.root.insertBefore(this.crosshair.svg, this.root.querySelector('.hit-marker'));
     this.marker = q('.hit-marker');
     this.hurt = q('.hurt-flash');
     this.ammoLoaded = q('.loaded');
@@ -62,17 +63,15 @@ export class Hud {
     this.root.hidden = !v;
   }
 
-  /** Reticle circle radius in pixels; null hides it. */
+  /** Crosshair size (aim wobble) in pixels; null hides it (not aiming). */
   setReticle(radiusPx: number | null, focus: number): void {
     if (radiusPx === null) {
-      this.reticle.style.display = 'none';
+      this.crosshair.svg.style.display = 'none';
       return;
     }
-    const r = Math.max(6, radiusPx);
-    this.reticle.style.display = 'block';
-    this.reticle.style.width = `${r * 2}px`;
-    this.reticle.style.height = `${r * 2}px`;
-    this.reticle.classList.toggle('focused', focus > 0.95);
+    this.crosshair.configure(settings.crosshair, settings.crosshairColor, settings.crosshairSize);
+    this.crosshair.svg.style.display = 'block';
+    this.crosshair.update(radiusPx, focus);
   }
 
   setAmmo(loaded: number, spare: number | null, reloadProgress: number | null): void {

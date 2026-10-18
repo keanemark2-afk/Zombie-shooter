@@ -28,6 +28,9 @@ If Node.js is missing, the launcher tells you exactly what to install.
 | Menu / pause | Esc | Options | Menu |
 | Tuning panel / FPS | F1 / F3 | | |
 
+Crosshair style, colour and size, the laser line and the gunshot sound can be
+changed in **menu > Settings**.
+
 ## For developers
 
 ```
@@ -38,4 +41,6 @@ npm run test:smoke # automated play tests in a headless browser (~3 minutes)
 npm run check      # typecheck + all tests
 ```
 
-All gameplay numbers live in `src/config/tuning.ts`.
+All gameplay numbers live in `src/config/tuning.ts`. Player preferences (crosshair,
+sound choice) live in `src/config/settings.ts`. Recorded sounds are in `public/sounds/`
+(rebuilt from the original CC0 downloads by `tools/make_sounds.py`; see `CREDITS.md`).
