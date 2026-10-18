@@ -20,6 +20,7 @@ declare global {
       state: () => ReturnType<Game['debugState']>;
       aimAt: (zone: Zone) => boolean;
       view: (from: [number, number, number] | null, to?: [number, number, number], keepControls?: boolean) => void;
+      zombie: (kind: Parameters<Game['debugZombie']>[0], value?: number) => boolean;
     };
   }
 }
@@ -69,5 +70,6 @@ if (!webglAvailable()) {
     state: () => game.debugState(),
     aimAt: (zone) => game.debugAimAt(zone),
     view: (from, to, keepControls) => game.debugView(from ? new Vector3(...from) : null, to ? new Vector3(...to) : null, keepControls),
+    zombie: (kind, value) => game.debugZombie(kind, value),
   };
 }

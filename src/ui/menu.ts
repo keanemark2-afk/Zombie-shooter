@@ -3,10 +3,12 @@ import {
   CROSSHAIR_COLORS,
   CROSSHAIR_SIZES,
   CROSSHAIR_STYLES,
+  GORE_LEVELS,
   resetSettings,
   saveSettings,
   settings,
   type CrosshairStyle,
+  type GoreLevel,
 } from '../config/settings';
 import { Crosshair, crosshairIcon } from './crosshair';
 import type { LevelId } from '../world/level';
@@ -32,7 +34,7 @@ export class Menu {
     this.root.innerHTML = `
       <div class="menu-panel">
         <h1>DEAD ACRE</h1>
-        <div class="menu-sub">Phase 1 &middot; Gunfeel test &middot; now with shotguns</div>
+        <div class="menu-sub">Phase 2 &middot; Kicks, knife &amp; gore &middot; seven weapons</div>
         <div class="menu-main">
           <div class="menu-buttons">
             <button type="button" data-choice="resume" class="resume">Resume</button>
@@ -105,6 +107,7 @@ export class Menu {
     else if (d.size) settings.crosshairSize = Number(d.size);
     else if (d.laser) settings.laserBeam = d.laser === 'on';
     else if (d.gunshot) settings.gunshotSound = d.gunshot === 'synth' ? 'synth' : 'recorded';
+    else if (d.gore) settings.gore = d.gore as GoreLevel;
     else return;
     saveSettings();
     this.renderSettings();
@@ -154,6 +157,13 @@ export class Menu {
           <button type="button" data-gunshot="synth"${on(settings.gunshotSound === 'synth')}>Old generated sound</button>
         </div>
       </div>
+      <div class="set-row">
+        <div class="set-label">Gore</div>
+        <div class="set-options">
+          ${GORE_LEVELS.map((g) => `<button type="button" data-gore="${g.id}" title="${g.hint}"${on(settings.gore === g.id)}>${g.label}</button>`).join('')}
+        </div>
+      </div>
+      <div class="set-hint">${GORE_LEVELS.find((g) => g.id === settings.gore)!.hint}</div>
       <div class="menu-buttons">
         <button type="button" data-action="back">Back</button>
         <button type="button" data-action="reset">Reset to defaults</button>
@@ -199,7 +209,10 @@ export class Menu {
       ['Aim (laser sight)', 'Hold right mouse', `Hold ${pad(bindings.aim.pad!)}`],
       ['Shoot (while aiming)', 'Left mouse', pad(bindings.fire.pad!)],
       ['Reload', 'R', pad(bindings.reload.pad!)],
-      ['Switch weapon', '1 2 3 or mouse wheel', `${pad(bindings.prevWeapon.pad!)} / ${pad(bindings.nextWeapon.pad!)}`],
+      ['Switch weapon', '1 to 7 or mouse wheel', `${pad(bindings.prevWeapon.pad!)} / ${pad(bindings.nextWeapon.pad!)}`],
+      ['Kick / suplex / finish (when prompted)', 'F', pad(bindings.melee.pad!)],
+      ['Knife slash / parry (just before a hit)', 'V (hold to block)', `${pad(bindings.knife.pad!)} (hold to block)`],
+      ['Break free of a grab', 'Mash F, or V to stab', `Mash ${pad(bindings.melee.pad!)}, or ${pad(bindings.knife.pad!)}`],
       ['Sprint', 'Hold Shift', `Hold ${pad(bindings.sprint.pad!)}`],
       ['Quick 180&deg; turn', 'Hold S + tap Shift', `Down + ${pad(bindings.sprint.pad!)}`],
       ['Menu / pause', 'Esc', pad(PAD.start)],

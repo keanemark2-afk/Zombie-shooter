@@ -12,6 +12,7 @@ const rules: DamageRules = {
     knockbackThreshold: 0.6,
     knockdownThreshold: 1.6,
   },
+  gore: { headPopDamage: 600 },
 };
 
 const pistol = { damage: 100, knockback: 0.15 };
@@ -164,5 +165,89 @@ describe('shotgun blasts (several pellets at once)', () => {
     const one = resolveShot([pellet('legR', 100, 0.15)], zombie(), 1, rules, () => 0.999);
     const old = resolveHit('legR', { damage: 100, knockback: 0.15 }, zombie(), 1, rules, () => 0.999);
     expect(one).toEqual(old);
+  });
+});
+
+describe('gore: bursting heads', () => {
+  it('a pistol headshot does not burst the head on its own', () => {
+    const hit = resolveHit('head', pistol, zombie(), 1, rules, always);
+    expect(hit.headPop).toBe(false);
+    expect(hit.killed).toBe(false);
+  });
+
+  it('a big enough hit to the head always bursts it and kills outright', () => {
+    const hit = resolveShot([{ zone: 'head', damage: 700, knockback: 1 }], zombie({ health: 5000 }), 0, rules, never);
+    expect(hit.headPop).toBe(true);
+    expect(hit.killed).toBe(true);
+    expect(hit.reaction).toBe('death');
+    expect(hit.crit).toBe(false);
+  });
+
+  it('a shotgun pellet to the head bursts it when its chance comes up', () => {
+    const pellet: PelletHit = { zone: 'head', damage: 42, knockback: 0.3, pop: 0.85 };
+    expect(resolveShot([pellet], zombie(), 1, rules, always).headPop).toBe(true);
+    expect(resolveShot([pellet], zombie(), 1, rules, never).headPop).toBe(false);
+  });
+
+  it('pellets that miss the head never burst it', () => {
+    const pellet: PelletHit = { zone: 'torso', damage: 42, knockback: 0.3, pop: 1 };
+    expect(resolveShot([pellet], zombie(), 1, rules, always).headPop).toBe(false);
+  });
+
+  it('a critical headshot bursts the head, more likely with a tight reticle', () => {
+    const roll = (v: number) => () => v;
+    const shot: PelletHit[] = [{ zone: 'head', damage: 100, knockback: 0.15 }];
+    // 5% crit chance: 2.5% with a wide reticle, 5% fully focused.
+    expect(resolveShot(shot, zombie(), 1, rules, roll(0.04), { critChance: 0.05 }).crit).toBe(true);
+    expect(resolveShot(shot, zombie(), 0, rules, roll(0.04), { critChance: 0.05 }).crit).toBe(false);
+    const hit = resolveShot(shot, zombie(), 1, rules, roll(0.01), { critChance: 0.05 });
+    expect(hit.headPop).toBe(true);
+    expect(hit.killed).toBe(true);
+  });
+
+  it('never bursts the head of an invincible practice dummy', () => {
+    const hit = resolveShot([{ zone: 'head', damage: 900, knockback: 1, pop: 1 }], zombie({ invincible: true }), 1, rules, always);
+    expect(hit.headPop).toBe(false);
+    expect(hit.killed).toBe(false);
+  });
+});
+
+describe('gore: tearing off limbs', () => {
+  it('a heavy hit to a leg tears it off and the zombie starts crawling', () => {
+    const hit = resolveShot([{ zone: 'legL', damage: 700, knockback: 1, sever: 0.9, segment: 'lower' }], zombie({ health: 5000 }), 1, rules, always);
+    expect(hit.severed).toEqual([{ zone: 'legL', segment: 'lower' }]);
+    expect(hit.reaction).toBe('legless');
+  });
+
+  it('losing an arm makes it drop what it holds', () => {
+    const hit = resolveShot([{ zone: 'armR', damage: 700, knockback: 0, sever: 1, segment: 'upper' }], zombie({ health: 5000, holdingWeapon: true }), 1, rules, always);
+    expect(hit.severed).toEqual([{ zone: 'armR', segment: 'upper' }]);
+    expect(hit.dropWeapon).toBe(true);
+    expect(hit.reaction).toBe('armFlinch');
+  });
+
+  it('several pellets on one arm tear it off once, at the shoulder if any hit up there', () => {
+    const pellets: PelletHit[] = [
+      { zone: 'armL', damage: 42, knockback: 0.3, sever: 0.5, segment: 'lower' },
+      { zone: 'armL', damage: 42, knockback: 0.3, sever: 0.5, segment: 'upper' },
+    ];
+    expect(resolveShot(pellets, zombie(), 1, rules, always).severed).toEqual([{ zone: 'armL', segment: 'upper' }]);
+  });
+
+  it('light guns never tear anything off', () => {
+    const hit = resolveShot([{ zone: 'legR', damage: 100, knockback: 0.15 }], zombie(), 1, rules, always);
+    expect(hit.severed).toEqual([]);
+    expect(hit.reaction).toBe('kneel');
+  });
+
+  it('a crawling zombie reacts like one lying on the ground', () => {
+    expect(resolveHit('head', pistol, zombie({ crawling: true }), 1, rules).reaction).toBe('none');
+    expect(resolveHit('legR', pistol, zombie({ crawling: true }), 1, rules).reaction).toBe('none');
+  });
+
+  it('a killing blow can still tear a limb off', () => {
+    const hit = resolveShot([{ zone: 'armL', damage: 2000, knockback: 0, sever: 1, segment: 'upper' }], zombie(), 1, rules, always);
+    expect(hit.killed).toBe(true);
+    expect(hit.severed.length).toBe(1);
   });
 });

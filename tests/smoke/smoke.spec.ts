@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { frames, hold, installFakePad, padButton, padTap, shootAt, state, waitForDummyState, waitForFrames, watchErrors } from './helpers';
 
 // Loads the game in a real (hidden) browser and plays it with simulated
 // keyboard, mouse and gamepad input. Any error in the browser fails the test.
@@ -6,96 +7,6 @@ import { expect, test, type Page } from '@playwright/test';
 // steps wait for the game to draw frames rather than for fixed times.
 
 const TOTAL_SECONDS = Number(process.env.SMOKE_SECONDS ?? 30);
-
-type State = Awaited<ReturnType<NonNullable<Window['__deadAcre']>['state']>>;
-
-function watchErrors(page: Page): string[] {
-  const errors: string[] = [];
-  page.on('console', (msg) => {
-    if (msg.type() === 'error') errors.push(`console.error: ${msg.text()}`);
-  });
-  page.on('pageerror', (err) => errors.push(`page error: ${err.message}`));
-  page.on('requestfailed', (req) => errors.push(`failed to load: ${req.url()}`));
-  return errors;
-}
-
-/** A fake PlayStation controller the test can press buttons on. */
-async function installFakePad(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    const pad = {
-      id: 'DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)',
-      index: 0,
-      connected: false,
-      mapping: 'standard',
-      timestamp: 0,
-      axes: [0, 0, 0, 0],
-      buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
-    };
-    (window as unknown as { __fakePad: typeof pad }).__fakePad = pad;
-    Object.defineProperty(navigator, 'getGamepads', { value: () => [pad.connected ? pad : null], configurable: true });
-  });
-}
-
-async function frames(page: Page): Promise<number> {
-  return page.evaluate(() => window.__deadAcre!.frames());
-}
-
-async function waitForFrames(page: Page, count: number): Promise<void> {
-  const start = await frames(page);
-  await page.waitForFunction((target) => window.__deadAcre!.frames() >= target, start + count, { timeout: 120_000 });
-}
-
-async function state(page: Page): Promise<State> {
-  return page.evaluate(() => window.__deadAcre!.state());
-}
-
-async function hold(page: Page, keys: string[], frameCount: number): Promise<void> {
-  for (const k of keys) await page.keyboard.down(k);
-  await waitForFrames(page, frameCount);
-  for (const k of [...keys].reverse()) await page.keyboard.up(k);
-}
-
-async function padButton(page: Page, button: number, value: number): Promise<void> {
-  await page.evaluate(
-    ([b, v]) => {
-      const pad = (window as unknown as { __fakePad: { buttons: Array<{ pressed: boolean; value: number }> } }).__fakePad;
-      pad.buttons[b].pressed = v > 0.5;
-      pad.buttons[b].value = v;
-    },
-    [button, value],
-  );
-}
-
-async function padTap(page: Page, button: number): Promise<void> {
-  await padButton(page, button, 1);
-  await waitForFrames(page, 2);
-  await padButton(page, button, 0);
-  await waitForFrames(page, 1);
-}
-
-/** Holds aim, steadies the reticle on a body part, and fires once. */
-async function shootAt(page: Page, zone: 'head' | 'torso' | 'armL' | 'armR' | 'legL' | 'legR'): Promise<State> {
-  await page.mouse.down({ button: 'right' });
-  for (let i = 0; i < 25; i++) {
-    await page.evaluate((z) => window.__deadAcre!.aimAt(z), zone);
-    await waitForFrames(page, 1);
-    const s = await state(page);
-    if (s.aiming && s.focus > 0.97) break;
-  }
-  await page.evaluate((z) => window.__deadAcre!.aimAt(z), zone);
-  await page.mouse.down({ button: 'left' });
-  await page.mouse.up({ button: 'left' });
-  await waitForFrames(page, 2);
-  const after = await state(page);
-  await page.mouse.up({ button: 'right' });
-  return after;
-}
-
-async function waitForDummyState(page: Page, states: string[]): Promise<void> {
-  await expect
-    .poll(async () => (await state(page)).zombies.find((z) => z.alive)?.state ?? 'none', { timeout: 120_000 })
-    .toMatch(new RegExp(`^(${states.join('|')})$`));
-}
 
 test('shooting range: aiming, reactions, reload and respawn', async ({ page }) => {
   const errors = watchErrors(page);
@@ -123,7 +34,7 @@ test('shooting range: aiming, reactions, reload and respawn', async ({ page }) =
   await expect(page.locator('.menu')).toBeHidden();
   // Clicking the menu switches the sound on, and the recorded gunshots load.
   await expect.poll(async () => (await state(page)).audioRunning).toBe(true);
-  await expect.poll(async () => (await state(page)).soundsLoaded, { timeout: 60_000 }).toBe(6);
+  await expect.poll(async () => (await state(page)).soundsLoaded, { timeout: 60_000 }).toBe(12);
   await expect(page.locator('.ammo')).toBeVisible();
   expect((await state(page)).mode).toBe('range');
   await page.evaluate(() => (window.__deadAcre!.tuning.range.dummyDistance = 8));

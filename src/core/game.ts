@@ -1,35 +1,44 @@
 import {
   ACESFilmicToneMapping,
+  ConeGeometry,
+  CylinderGeometry,
+  Group,
   LineSegments,
   MathUtils,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
   PCFShadowMap,
   PerspectiveCamera,
+  Quaternion,
   Raycaster,
   Scene,
   Vector3,
   WebGLRenderer,
   type Intersection,
-  type Mesh,
   type Object3D,
 } from 'three';
 import { Sfx } from '../audio/sfx';
 import { FallingProp } from '../characters/handheld';
-import { resolveShot, zoneGroup, type HitResult, type PelletHit, type Zone } from '../combat/damage';
+import { isLimb, resolveShot, zoneGroup, type HitResult, type LimbSegment, type LimbZone, type PelletHit, type Zone } from '../combat/damage';
+import { blastFalloff, GrabStruggle, judgeParry, MELEE_NAMES, pickMeleeTarget, type MeleeMove } from '../combat/melee';
 import { blastPush, falloff, randomInCone } from '../combat/pellets';
 import { WEAPONS } from '../combat/weapons';
-import { PAD } from '../config/controls';
-import { settings } from '../config/settings';
+import { padButtonName, PAD } from '../config/controls';
+import { bloodScale, goreLevel, settings } from '../config/settings';
 import { tuning } from '../config/tuning';
 import { showError } from '../debug/errorOverlay';
 import { FpsCounter } from '../debug/fpsCounter';
 import { TuningPanel } from '../debug/tuningPanel';
-import { Zombie, type ZombieBehavior, type ZombieHost } from '../enemies/zombie';
+import { Zombie, type AttackKind, type AttackOutcome, type GrabRelease, type ZombieBehavior, type ZombieHost } from '../enemies/zombie';
 import { Effects } from '../fx/effects';
-import { Player, type PlayerHost } from '../player/player';
+import { GoreSystem } from '../fx/gore';
+import { NO_INPUT, Player, type MeleePhase, type PlayerHost, type PlayerInput } from '../player/player';
 import { ShoulderCamera } from '../player/shoulderCamera';
 import { PostFx } from '../render/postFx';
 import { Hud, type RangeStats } from '../ui/hud';
 import { Menu, type MenuChoice } from '../ui/menu';
+import type { Collider } from '../world/colliders';
 import { colliderOutlines } from '../world/colliders';
 import type { LevelId } from '../world/level';
 import { rangeZ } from '../world/range';
@@ -59,16 +68,38 @@ function describeHit(hit: HitResult): string {
     trip: 'TRIPPED and fell flat',
     armFlinch: hit.dropWeapon ? 'arm knocked back, DROPPED its tool' : 'arm knocked back',
     knockdown: 'KNOCKED DOWN',
-    death: hit.overkill > 0 ? `KILLED (overkill ${Math.round(hit.overkill)})` : 'KILLED',
+    legless: 'now CRAWLING',
+    death: hit.headPop
+      ? `${hit.crit ? 'CRITICAL! ' : ''}${goreLevel() === 'off' ? 'KILLED OUTRIGHT' : 'HEAD BURST'}`
+      : hit.overkill > 0
+        ? `KILLED (overkill ${Math.round(hit.overkill)})`
+        : 'KILLED',
   };
   const where = hit.pellets > 1 ? `${ZONE_NAMES[hit.zone]} · ${hit.pellets} pellets` : ZONE_NAMES[hit.zone];
-  return `${where} · ${Math.round(hit.damage)} damage · ${reactions[hit.reaction]}`;
+  const torn = hit.severed.map((s) => `${ZONE_NAMES[s.zone]} TORN OFF`).join(' · ');
+  return `${where} · ${Math.round(hit.damage)} damage · ${torn ? `${torn} · ` : ''}${reactions[hit.reaction]}`;
 }
 
 interface AimResult {
   /** Where the camera's aim (with wobble) lands. */
   point: Vector3;
   direction: Vector3;
+}
+
+interface Rocket {
+  mesh: Object3D;
+  pos: Vector3;
+  dir: Vector3;
+  travelled: number;
+}
+
+interface Barrel {
+  group: Object3D;
+  collider: Collider | null;
+  meshes: Object3D[];
+  exploded: boolean;
+  /** Seconds until it goes off (-1 = not lit). */
+  fuse: number;
 }
 
 /** Angle between two directions seen from above (ignoring up/down), in radians. */
@@ -85,10 +116,23 @@ function disposeObject(obj: Object3D): void {
   });
 }
 
+function smoothstep(t: number): number {
+  const u = Math.min(1, Math.max(0, t));
+  return u * u * (3 - 2 * u);
+}
+
 const tmp = new Vector3();
 const tmp2 = new Vector3();
+const tmp3 = new Vector3();
 const muzzlePos = new Vector3();
 const laserPos = new Vector3();
+const UP = new Vector3(0, 1, 0);
+const X_AXIS = new Vector3(1, 0, 0);
+const qYaw = new Quaternion();
+const qPitch = new Quaternion();
+
+const rocketBody = new MeshStandardMaterial({ color: '#5d5a3a', roughness: 0.6, metalness: 0.3 });
+const rocketFlame = new MeshBasicMaterial({ color: '#ffb35c' });
 
 /** Owns the renderer, the world, the characters and the main loop. */
 export class Game {
@@ -108,6 +152,7 @@ export class Game {
   private readonly clock = new FixedStepClock();
   private readonly fps: FpsCounter;
   private readonly fx: Effects;
+  private readonly gore: GoreSystem;
   private readonly sfx = new Sfx();
   private readonly hud = new Hud();
   private readonly menu = new Menu();
@@ -134,6 +179,17 @@ export class Game {
   private lastWeapon = -1;
   private aim: AimResult = { point: new Vector3(), direction: new Vector3(0, 0, -1) };
 
+  /** The stunned zombie the melee prompt is showing over, and the move it offers. */
+  private meleeOption: { zombie: Zombie; move: MeleeMove } | null = null;
+  /** The zombie being kicked, suplexed or stabbed right now. */
+  private meleeTarget: Zombie | null = null;
+  private grabbedBy: Zombie | null = null;
+  private struggle: GrabStruggle | null = null;
+  private grabCooldown = 0;
+  private lastWiggle = 0;
+  private readonly rockets: Rocket[] = [];
+  private barrels: Barrel[] = [];
+
   mode: LevelId | null = null;
   paused = true;
   gameTime = 0;
@@ -156,6 +212,7 @@ export class Game {
     this.world = new World(this.scene);
     this.fx = new Effects(this.scene);
     this.fx.onShellLand = (pos, kind) => this.sfx.shellLand(pos, kind);
+    this.gore = new GoreSystem(this.scene, this.fx, (origin, dir, max) => this.world.raycast(origin, dir, max));
     this.player = new Player();
     this.scene.add(this.player.object);
     this.cam = new ShoulderCamera(this.camera);
@@ -172,7 +229,8 @@ export class Game {
       playerPosition: this.player.position,
       zombies: this.zombies,
       voice: this.sfx,
-      onPlayerHit: (z) => this.onPlayerHit(z),
+      attackPlayer: (z, kind) => this.attackPlayer(z, kind),
+      canGrab: () => !this.player.busy && !this.player.invulnerable && this.grabCooldown <= 0 && this.grabbedBy === null && this.player.stunTime <= 0,
       dropProp: (prop, velocity, spin) => {
         this.scene.add(prop);
         const fp = new FallingProp(prop);
@@ -186,13 +244,21 @@ export class Game {
       fire: () => this.fireShot(),
       dryFire: () => this.sfx.dryFire(),
       gunEvent: (e) => {
-        if (e === 'eject') {
+        const casing = this.player.def.casing;
+        if (e === 'eject' && casing !== 'none') {
           this.player.ejectionWorld(tmp);
-          this.fx.ejectShell(tmp, tmp2.set(Math.cos(this.cam.yaw), 0, -Math.sin(this.cam.yaw)), this.player.def.casing);
+          this.fx.ejectShell(tmp, tmp2.set(Math.cos(this.cam.yaw), 0, -Math.sin(this.cam.yaw)), casing);
+        }
+        if (e === 'cylinderOut') {
+          // Six empty cases tumble out of the revolver.
+          this.player.ejectionWorld(tmp);
+          for (let i = 0; i < 6; i++) this.fx.ejectShell(tmp, tmp2.set(Math.random() - 0.5, -0.5, Math.random() - 0.5).multiplyScalar(0.4), 'brass');
         }
         this.sfx.gunEvent(e);
       },
       footstep: (_pos, sprinting) => this.sfx.footstep(sprinting),
+      knifeSlash: () => this.knifeSlash(),
+      meleeEvent: (move, phase) => this.meleeEvent(move, phase),
     };
 
     this.menu.onChoose = (choice) => this.choose(choice);
@@ -238,8 +304,13 @@ export class Game {
     this.zombies.length = 0;
     for (const p of this.fallingProps) disposeObject(p.object);
     this.fallingProps.length = 0;
+    for (const r of this.rockets) disposeObject(r.mesh);
+    this.rockets.length = 0;
+    this.gore.clear();
+    this.restoreBarrels();
     this.world.setLevel(id);
     this.mode = id;
+    this.setupBarrels();
     const spawn = this.world.level.playerSpawn;
     this.player.spawn(spawn.x, spawn.z, spawn.yaw, this.world);
     this.player.object.visible = true;
@@ -247,6 +318,11 @@ export class Game {
     this.cam.pitch = -0.05;
     Object.assign(this.stats, { shots: 0, hits: 0, headshots: 0, kills: 0, lastHit: '' });
     this.respawnTimer = 0;
+    this.meleeOption = null;
+    this.meleeTarget = null;
+    this.grabbedBy = null;
+    this.struggle = null;
+    this.grabCooldown = 0;
     if (this.colliderLines) {
       this.colliderLines.removeFromParent();
       this.colliderLines = null;
@@ -337,6 +413,8 @@ export class Game {
     z.object.removeFromParent();
     z.dispose();
     this.dummySlots.delete(z);
+    if (this.meleeTarget === z) this.meleeTarget = null;
+    if (this.grabbedBy === z) this.endGrab();
   }
 
   private manageZombies(dt: number): void {
@@ -360,7 +438,7 @@ export class Game {
         }
         z.invincible = tuning.range.dummyInvincible;
         z.behavior = this.dummyBehavior();
-        if (moved) z.teleport(this.dummyX(slot), rangeZ(d), 0);
+        if (moved && !z.crawler) z.teleport(this.dummyX(slot), rangeZ(d), 0);
       }
       const living = alive.filter((z) => !z.removed).length;
       if (living < this.dummyCount()) {
@@ -385,11 +463,548 @@ export class Game {
     }
   }
 
-  private onPlayerHit(_z: Zombie): void {
-    this.player.hurt(_z.position);
+  // ---------------------------------------------------------------------------
+  // Zombies attacking the player: hits, parries and grabs
+
+  private attackPlayer(z: Zombie, kind: AttackKind): AttackOutcome {
+    const p = this.player;
+    if (p.invulnerable || (p.grabbed && this.grabbedBy !== z)) return 'blocked';
+    const since = p.sinceKnifePress < 2 ? p.sinceKnifePress : null;
+    const parry = judgeParry(since, p.guarding, p.knife.durability, tuning.knife);
+    if (parry !== 'none' && !p.grabbed) {
+      const k = tuning.knife;
+      const perfect = parry === 'perfect';
+      p.knife.wear(perfect ? k.perfectParryCost : k.parryCost, k.unbreakable);
+      p.sinceKnifePress = 999;
+      this.sfx.parry(perfect);
+      this.fx.parrySpark(p.knifeWorld(tmp), perfect);
+      if (perfect) {
+        this.hitStop = Math.max(this.hitStop, k.parryHitStop);
+        this.hud.flashBanner('PERFECT PARRY');
+        this.cam.shake(0.2);
+      } else {
+        p.nudge(z.position, 0.35);
+        this.cam.shake(0.1);
+      }
+      this.stats.lastHit = perfect ? 'PERFECT PARRY · zombie stunned - kick it!' : 'PARRIED';
+      return perfect ? 'perfect' : 'parried';
+    }
+    if (kind === 'grab') {
+      if (!this.zombieHost.canGrab(z)) return 'blocked';
+      this.startGrab(z);
+      return 'grabbed';
+    }
+    p.hurt(z.position, kind === 'claw' ? tuning.zombie.attackPush * 0.6 : tuning.zombie.attackPush);
     this.cam.shake(tuning.feel.shakeHurt);
     this.hud.hurtFlash();
     this.sfx.playerHurt();
+    return 'hit';
+  }
+
+  private startGrab(z: Zombie): void {
+    this.grabbedBy = z;
+    this.struggle = new GrabStruggle(tuning.grab);
+    this.player.grabbed = true;
+    this.player.aiming = false;
+    this.player.gun.cancelReload();
+    this.lastWiggle = 0;
+    this.sfx.roar(z.chestPosition(tmp), z.voicePitch * 1.1);
+    this.cam.shake(0.25);
+  }
+
+  /** Each update while held: keep the two pressed together, read the mashing. */
+  private tickGrab(dt: number, input: PlayerInput): void {
+    const z = this.grabbedBy!;
+    const s = this.struggle!;
+    if (!z.alive || z.state !== 'grabbing') {
+      this.endGrab();
+      return;
+    }
+    const p = this.player;
+    const toZ = tmp.subVectors(z.position, p.position).setY(0);
+    if (toZ.lengthSq() < 1e-4) toZ.copy(p.forward(tmp2));
+    toZ.normalize();
+    p.yaw = Math.atan2(-toZ.x, -toZ.z);
+    z.holdAt(tmp2.copy(p.position).addScaledVector(toZ, 0.55), p.yaw + Math.PI);
+
+    if (input.meleePressed) {
+      s.mash();
+      this.sfx.struggle();
+      this.cam.shake(0.05);
+    }
+    const flick = Math.abs(input.moveX) > 0.5 ? Math.sign(input.moveX) : 0;
+    if (flick !== 0 && flick !== this.lastWiggle) s.wiggle();
+    if (flick !== 0) this.lastWiggle = flick;
+    if (input.knifePressed && !p.knife.broken) {
+      this.releaseGrab('knifed');
+      return;
+    }
+    const result = s.tick(dt);
+    if (result === 'free') this.releaseGrab('shoved');
+    else if (result === 'bitten') this.releaseGrab('bit');
+  }
+
+  private releaseGrab(how: GrabRelease): void {
+    const z = this.grabbedBy;
+    if (!z) return;
+    const p = this.player;
+    const dir = tmp3.subVectors(z.position, p.position).setY(0).normalize();
+    z.releaseGrab(how, dir);
+    if (how === 'knifed') {
+      p.knife.wear(tuning.knife.grabEscapeCost, tuning.knife.unbreakable);
+      p.stab();
+      const result = resolveShot([{ zone: 'head', damage: tuning.knife.damage * 2, knockback: 0 }], z.targetState, 1, tuning);
+      z.health = result.healthAfter;
+      if (result.killed) z.applyHit(result, dir, this.sfx, this.zombieHost);
+      const at = z.headPosition(tmp);
+      this.sfx.knifeHit(at, true);
+      this.fx.blood(at, dir, 1.2 * bloodScale(), this.world.groundHeight(at.x, at.z));
+      this.stats.lastHit = 'STABBED FREE';
+    } else if (how === 'shoved') {
+      this.sfx.kick(z.chestPosition(tmp));
+      this.stats.lastHit = 'BROKE FREE · zombie stunned - kick it!';
+    } else {
+      p.hurt(z.position, tuning.zombie.attackPush * 1.3);
+      this.hud.hurtFlash();
+      this.sfx.bite(z.headPosition(tmp));
+      this.cam.shake(tuning.feel.shakeHurt);
+      this.fx.blood(p.position.clone().setY(p.position.y + 1.5), dir.clone().negate(), 0.8 * bloodScale(), p.position.y);
+      this.stats.lastHit = 'BITTEN';
+    }
+    this.endGrab();
+  }
+
+  private endGrab(): void {
+    this.grabbedBy = null;
+    this.struggle = null;
+    this.player.grabbed = false;
+    this.grabCooldown = tuning.grab.cooldown;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Melee: the prompt, the moves and what they do
+
+  /** Finds the stunned zombie (if any) the melee prompt should show over. */
+  private computeMeleeOption(): void {
+    this.meleeOption = null;
+    const p = this.player;
+    if (p.busy || p.stunTime > 0 || p.quickTurnTime > 0) return;
+    const camFwd = tmp2.set(-Math.sin(this.cam.yaw), 0, -Math.cos(this.cam.yaw));
+    const candidates = this.zombies
+      .filter((z) => z.alive && z.openTo !== null)
+      .map((z) => {
+        const to = z.bodyCenter(new Vector3()).sub(p.position).setY(0);
+        return {
+          zombie: z,
+          openTo: z.openTo,
+          distance: to.length(),
+          angleOff: MathUtils.radToDeg(angleBetweenFlat(to, camFwd)),
+          facingAway: z.facingAwayFrom(p.position),
+        };
+      });
+    const pick = pickMeleeTarget(candidates, tuning.melee.range, tuning.melee.promptAngle);
+    if (pick) this.meleeOption = { zombie: pick.target.zombie, move: pick.move };
+  }
+
+  private startMelee(): void {
+    const opt = this.meleeOption;
+    if (!opt) return;
+    const { zombie: z, move } = opt;
+    const p = this.player;
+    const center = z.bodyCenter(new Vector3());
+    const anchor = new Vector3();
+    let face = p.yaw;
+    if (move === 'suplex') {
+      // Step in right behind it, facing the same way.
+      z.forward(tmp);
+      anchor.copy(z.position).addScaledVector(tmp, -0.42);
+      face = z.yaw;
+    } else if (move === 'finisher') {
+      // Kneel beside the body, on whichever side you're on.
+      z.forward(tmp);
+      const side = tmp2.set(-tmp.z, 0, tmp.x);
+      if (side.dot(tmp3.subVectors(p.position, center)) < 0) side.negate();
+      anchor.copy(center).addScaledVector(side, 0.62);
+      const to = tmp3.subVectors(center, anchor).setY(0);
+      face = Math.atan2(-to.x, -to.z);
+    } else {
+      const to = tmp.subVectors(center, p.position).setY(0);
+      const d = Math.max(0.01, to.length());
+      to.divideScalar(d);
+      anchor.copy(center).addScaledVector(to, -(move === 'roundhouse' ? 1.05 : 0.95));
+      face = Math.atan2(-to.x, -to.z);
+    }
+    anchor.y = this.world.groundHeight(anchor.x, anchor.z);
+    p.startMelee(move, anchor, face);
+    this.meleeTarget = z;
+    this.meleeOption = null;
+  }
+
+  private meleeEvent(move: MeleeMove, phase: MeleePhase): void {
+    const z = this.meleeTarget;
+    const p = this.player;
+    const m = tuning.melee;
+    if (phase === 'end') {
+      if (z && z.state === 'carried') this.landSuplex(z);
+      this.meleeTarget = null;
+      return;
+    }
+    if (!z) return;
+    const dir = tmp3.subVectors(z.position, p.position).setY(0).normalize();
+    const land = (damage: number, zone: Zone, push: number): HitResult => {
+      const result = resolveShot([{ zone, damage, knockback: push }], z.targetState, 1, tuning);
+      z.applyHit(result, dir.clone(), this.sfx, this.zombieHost);
+      if (result.killed) this.stats.kills++;
+      return result;
+    };
+    const feel = () => {
+      this.hitStop = Math.max(this.hitStop, m.hitStop);
+      this.cam.shake(m.shake);
+    };
+
+    if (move === 'roundhouse' && phase === 'impact') {
+      const r = land(m.kickDamage, 'torso', 5);
+      this.sfx.kick(z.chestPosition(tmp));
+      feel();
+      // The sweep knocks down everyone close by.
+      let swept = 0;
+      for (const other of this.zombies) {
+        if (other === z || !other.alive || other.state === 'carried' || other.state === 'grabbing') continue;
+        const to = other.chestPosition(tmp).sub(p.position).setY(0);
+        if (to.length() > m.kickRadius) continue;
+        const res = resolveShot([{ zone: 'torso', damage: m.kickSplashDamage, knockback: 5 }], other.targetState, 1, tuning);
+        other.applyHit(res, to.normalize(), this.sfx, this.zombieHost);
+        if (res.killed) this.stats.kills++;
+        swept++;
+      }
+      this.stats.lastHit = `ROUNDHOUSE KICK · ${Math.round(r.damage)} damage · ${r.killed ? 'KILLED' : 'KNOCKED DOWN'}${swept ? ` (+${swept} more knocked down)` : ''}`;
+    } else if (move === 'frontKick' && phase === 'impact') {
+      const r = land(m.frontKickDamage, 'torso', 5);
+      this.sfx.kick(z.chestPosition(tmp));
+      feel();
+      this.stats.lastHit = `FRONT KICK · ${Math.round(r.damage)} damage · ${r.killed ? 'KILLED' : 'KNOCKED DOWN'}`;
+    } else if (move === 'suplex' && phase === 'grab') {
+      z.beginCarry();
+      this.sfx.grunt(z.chestPosition(tmp), z.voicePitch);
+    } else if (move === 'suplex' && phase === 'slam') {
+      // Head first into the ground. Damage now; it lands properly at "release".
+      const r = resolveShot([{ zone: 'torso', damage: m.suplexDamage, knockback: 0 }], { ...z.targetState, downed: true }, 1, tuning);
+      z.health = r.healthAfter;
+      if (r.killed) this.stats.kills++;
+      const head = z.headPosition(tmp);
+      head.y = Math.max(head.y, this.world.groundHeight(head.x, head.z) + 0.1);
+      this.sfx.slam(head);
+      this.fx.blood(head, UP, 1.3 * bloodScale(), this.world.groundHeight(head.x, head.z));
+      feel();
+      this.cam.shake(m.shake * 0.8);
+      this.stats.lastHit = `SUPLEX · ${Math.round(r.damage)} damage · ${r.killed ? 'KILLED' : 'slammed down'}`;
+    } else if (move === 'suplex' && phase === 'release') {
+      this.landSuplex(z);
+    } else if (move === 'finisher' && phase === 'impact') {
+      const r = land(m.finisherDamage, 'torso', 0);
+      p.knife.wear(tuning.knife.finisherCost, tuning.knife.unbreakable);
+      const at = z.headPosition(tmp);
+      this.sfx.knifeHit(at, true);
+      this.fx.blood(at, UP, 1.4 * bloodScale(), this.world.groundHeight(at.x, at.z));
+      feel();
+      this.stats.lastHit = `KNIFE FINISHER · ${r.killed ? 'KILLED' : `${Math.round(r.damage)} damage`}`;
+    }
+  }
+
+  /**
+   * Where the suplexed body is during the throw: lifted at the waist, swung
+   * backwards over the player's head, then slammed down head first behind.
+   */
+  private updateCarry(): void {
+    const z = this.meleeTarget;
+    const p = this.player;
+    if (!z || p.melee !== 'suplex' || z.state !== 'carried') return;
+    const u = p.meleeProgress;
+    const theta = u < 0.1 ? 0 : u < 0.5 ? Math.PI * smoothstep((u - 0.1) / 0.4) : Math.PI + (Math.PI - 1.5) * smoothstep((u - 0.5) / 0.22);
+    const { pos, quat } = this.carryPose(theta, z);
+    z.setCarryTransform(pos, quat);
+  }
+
+  private carryPose(theta: number, z: Zombie): { pos: Vector3; quat: Quaternion } {
+    const p = this.player;
+    const f = p.forward(new Vector3());
+    const scale = z.object.scale.x;
+    const hip = 0.95 * scale;
+    const headUp = 0.75 * scale;
+    const chest = new Vector3(p.position.x, p.position.y + 1.05, p.position.z).addScaledVector(f, 0.1);
+    qYaw.setFromAxisAngle(UP, p.yaw);
+    qPitch.setFromAxisAngle(X_AXIS, theta);
+    const quat = qYaw.clone().multiply(qPitch);
+    const pos = new Vector3();
+    if (theta <= Math.PI) {
+      const hips = chest.clone().addScaledVector(f, 0.29 * Math.cos(theta)).addScaledVector(UP, 0.45 * Math.sin(theta));
+      pos.copy(hips).sub(tmp.set(0, hip, 0).applyQuaternion(quat));
+    } else {
+      const head = chest.clone().addScaledVector(f, -0.29).addScaledVector(UP, -headUp);
+      head.y = Math.max(head.y, this.world.groundHeight(head.x, head.z) + 0.1);
+      pos.copy(head).sub(tmp.set(0, hip + headUp, 0).applyQuaternion(quat));
+    }
+    return { pos, quat };
+  }
+
+  private landSuplex(z: Zombie): void {
+    if (z.state !== 'carried') return;
+    const { pos } = this.carryPose(Math.PI * 2 - 1.5, z);
+    pos.y = this.world.groundHeight(pos.x, pos.z);
+    z.endCarry(pos, this.player.yaw);
+    this.sfx.bodyFall(pos);
+  }
+
+  /** The knife reaches out: cuts whoever is in front, close enough. */
+  private knifeSlash(): void {
+    this.sfx.knifeSwish();
+    const p = this.player;
+    const fwd = p.forward(new Vector3());
+    let hits = 0;
+    for (const z of this.zombies) {
+      if (!z.alive || hits >= 2 || z.state === 'carried') continue;
+      const c = z.bodyCenter(new Vector3());
+      const to = tmp.subVectors(c, p.position).setY(0);
+      if (to.length() > tuning.knife.range + 0.3) continue;
+      if (MathUtils.radToDeg(Math.abs(angleBetweenFlat(to, fwd))) > tuning.knife.arc) continue;
+      const zone: Zone = z.lying ? 'head' : 'torso';
+      const result = resolveShot([{ zone, damage: tuning.knife.damage, knockback: 0.3 }], z.targetState, 1, tuning);
+      z.applyHit(result, to.clone().normalize(), this.sfx, this.zombieHost);
+      this.sfx.knifeHit(c);
+      this.fx.blood(c, to.normalize(), 0.7 * bloodScale(), this.world.groundHeight(c.x, c.z));
+      this.hud.hitMarker(zoneGroup(zone), result.killed, tuning.feel.hitMarkerTime);
+      if (result.killed) this.stats.kills++;
+      this.stats.lastHit = `KNIFE · ${Math.round(result.damage)} damage · ${result.killed ? 'KILLED' : result.reaction === 'none' ? 'cut' : 'flinched'}`;
+      hits++;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Gore
+
+  /** Head bursts and torn-off limbs from a hit (after the zombie has reacted). */
+  private applyGore(z: Zombie, result: HitResult, dir: Vector3): void {
+    const level = goreLevel();
+    if (result.headPop && !z.headless) {
+      const skin = z.skin;
+      const at = level === 'off' ? z.headPosition(new Vector3()) : z.popHead(new Vector3());
+      this.sfx.headBurst(at);
+      if (level !== 'off') {
+        this.gore.burstHead(at, dir, skin, this.world.groundHeight(at.x, at.z));
+        this.gore.spurt(z.rig.joints.neck, new Vector3(0, 0.1, 0), UP, 1);
+      }
+      this.hitStop = Math.max(this.hitStop, tuning.feel.hitStopKill * 1.4);
+      this.cam.shake(tuning.feel.shakeHeadshot * 2);
+      if (result.crit) this.hud.flashBanner('CRITICAL!', 'gore');
+    }
+    if (level === 'off') return;
+    for (const s of result.severed) this.tearOff(z, s.zone, s.segment, dir, 1);
+  }
+
+  /** Rips an arm or leg off and sends it flying, with blood pumping from both ends. */
+  private tearOff(z: Zombie, zone: LimbZone, segment: LimbSegment, dir: Vector3, force: number): void {
+    const limb = z.sever(zone, segment);
+    if (!limb) return;
+    const parent = limb.parent!;
+    const offset = limb.position.clone();
+    const arm = zone.startsWith('arm');
+    const side = zone.endsWith('L') ? -1 : 1;
+    // Blood from the stump on the body: out to the side for a shoulder, down for the rest.
+    const stumpDir = arm && segment === 'upper' ? new Vector3(side, -0.3, 0) : new Vector3(0, -1, 0);
+    this.gore.spurt(parent, offset, stumpDir, 0.8);
+    const vel = dir.clone().setY(0).normalize().multiplyScalar((2 + Math.random() * 2) * force);
+    vel.y += (1.5 + Math.random() * 1.5) * force;
+    const spin = new Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(18 * force);
+    this.gore.fling(limb, vel, spin);
+    this.gore.spurt(limb, new Vector3(0, 0, 0), UP, 0.4);
+    const at = limb.getWorldPosition(new Vector3());
+    this.sfx.limbTear(at);
+    this.fx.blood(at, dir, 1.2 * bloodScale(), this.world.groundHeight(at.x, at.z));
+  }
+
+  /** Blown apart: every body part flies out from the blast. */
+  private gibZombie(z: Zombie, from: Vector3): void {
+    const center = z.bodyCenter(new Vector3());
+    for (const part of [...z.parts]) {
+      delete part.userData.zombie;
+      const out = part.getWorldPosition(new Vector3()).sub(from);
+      out.y = Math.max(0.2, out.y);
+      out.normalize();
+      const vel = out.multiplyScalar(5 + Math.random() * 5);
+      vel.y += 2 + Math.random() * 4;
+      const spin = new Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(25);
+      this.gore.fling(part, vel, spin);
+    }
+    this.gore.burstBody(center, this.world.groundHeight(center.x, center.z));
+    z.gib();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Rockets, explosions and barrels
+
+  private launchRocket(): void {
+    const aim = this.computeAim();
+    this.player.muzzleWorld(muzzlePos);
+    const dir = new Vector3().subVectors(aim.point, muzzlePos).normalize();
+    const mesh = new Group();
+    const body = new Mesh(new CylinderGeometry(0.045, 0.045, 0.32, 10), rocketBody);
+    body.rotation.x = Math.PI / 2;
+    const nose = new Mesh(new ConeGeometry(0.045, 0.15, 10), rocketBody);
+    nose.rotation.x = -Math.PI / 2;
+    nose.position.z = -0.23;
+    const flame = new Mesh(new ConeGeometry(0.04, 0.18, 8), rocketFlame);
+    flame.rotation.x = Math.PI / 2;
+    flame.position.z = 0.25;
+    mesh.add(body, nose, flame);
+    mesh.traverse((o) => (o.raycast = () => {}));
+    mesh.position.copy(muzzlePos);
+    mesh.quaternion.setFromUnitVectors(tmp.set(0, 0, -1), dir);
+    this.scene.add(mesh);
+    this.rockets.push({ mesh, pos: muzzlePos.clone(), dir, travelled: 0 });
+    this.fx.muzzleFlash(muzzlePos, dir, 2.2);
+    // Back-blast: smoke out of the rear of the tube.
+    this.player.ejectionWorld(tmp);
+    for (let i = 0; i < 6; i++) this.fx.rocketTrail(tmp, dir.clone().multiplyScalar(-2));
+    this.sfx.shot('rocket');
+    this.cam.shake(tuning.feel.shakeShot * 3);
+  }
+
+  private updateRockets(dt: number): void {
+    const e = tuning.explosion;
+    for (let i = this.rockets.length - 1; i >= 0; i--) {
+      const r = this.rockets[i];
+      const step = e.rocketSpeed * dt;
+      const wall = this.world.raycast(r.pos, r.dir, step);
+      const zh = this.castZombies(r.pos, r.dir, wall ? wall.distance : step);
+      let boomAt: Vector3 | null = null;
+      let direct: Zombie | null = null;
+      if (zh.length) {
+        boomAt = zh[0].point.clone();
+        direct = zh[0].object.userData.zombie as Zombie;
+      } else if (wall) {
+        boomAt = wall.point.clone().addScaledVector(wall.normal, 0.15);
+        const barrel = this.barrelFor(wall.object);
+        if (barrel && !barrel.exploded) barrel.fuse = 0;
+      } else {
+        r.pos.addScaledVector(r.dir, step);
+        r.travelled += step;
+        if (r.travelled > this.player.guns.find((g) => g.def.projectile)!.stats.maxRange) boomAt = r.pos.clone();
+      }
+      if (boomAt) {
+        disposeObject(r.mesh);
+        this.rockets.splice(i, 1);
+        this.explode(boomAt, direct);
+        continue;
+      }
+      r.mesh.position.copy(r.pos);
+      this.fx.rocketTrail(tmp.copy(r.pos).addScaledVector(r.dir, -0.25), r.dir);
+    }
+  }
+
+  /** A blast: damages, throws, dismembers or blows apart everything nearby. */
+  private explode(at: Vector3, direct: Zombie | null = null, big = true): void {
+    const e = tuning.explosion;
+    const ground = this.world.groundHeight(at.x, at.z);
+    this.fx.explosion(at, ground, big ? 1 : 0.8);
+    this.sfx.explosion(at, big);
+    const playerDist = tmp.set(this.player.position.x, this.player.position.y + 1, this.player.position.z).distanceTo(at);
+    this.cam.shake(e.shake * MathUtils.clamp(1 - playerDist / (e.radius * 4), 0.15, 1));
+    this.hitStop = Math.max(this.hitStop, e.hitStop);
+    const gore = goreLevel();
+    let killed = 0;
+    for (const z of this.zombies) {
+      if (z.gibbed) continue;
+      const center = z.bodyCenter(new Vector3());
+      const d = center.distanceTo(at);
+      if (d > e.radius) continue;
+      // Solid walls shelter whatever is behind them.
+      const to = tmp2.subVectors(center, at);
+      const wall = this.world.raycast(at, to.clone().normalize(), Math.max(0, d - 0.3));
+      if (wall && !this.barrelFor(wall.object)) continue;
+      const dir = to.setY(Math.max(0.1, to.y)).normalize();
+      if (!z.alive) {
+        if (gore !== 'off' && d < e.gibRadius) this.gibZombie(z, at);
+        continue;
+      }
+      const k = blastFalloff(d, e.radius);
+      if (gore !== 'off' && !z.invincible && (d < e.gibRadius || z === direct)) {
+        z.health = 0;
+        const res = resolveShot([{ zone: 'torso', damage: 1e6, knockback: 0 }], z.targetState, 0, tuning);
+        z.applyHit(res, dir, this.sfx, this.zombieHost);
+        this.gibZombie(z, at);
+        killed++;
+        continue;
+      }
+      const damage = e.damage * k + (z === direct ? tuning.rocket.damage : 0);
+      const push = e.push * (0.4 + 0.6 * k);
+      const result = resolveShot([{ zone: 'torso', damage, knockback: Math.max(push, tuning.reactions.knockdownThreshold) }], z.targetState, 0, tuning);
+      // Arms and legs may come off close to the blast.
+      if (gore !== 'off' && !z.invincible && d < e.limbRadius) {
+        const chance = 0.65 * (1 - d / e.limbRadius);
+        for (const limb of ['armL', 'armR', 'legL', 'legR'] as LimbZone[]) {
+          if (!z.missing.has(limb) && Math.random() < chance) result.severed.push({ zone: limb, segment: Math.random() < 0.5 ? 'upper' : 'lower' });
+        }
+        if (!result.killed && result.severed.some((s) => isLimb(s.zone) && s.zone.startsWith('leg')) && !z.crawler) result.reaction = 'legless';
+      }
+      z.applyHit(result, dir, this.sfx, this.zombieHost);
+      for (const s of result.severed) this.tearOff(z, s.zone, s.segment, dir, 1.6);
+      if (result.killed) killed++;
+    }
+    this.stats.kills += killed;
+    if (killed) this.stats.lastHit = `EXPLOSION · ${killed} killed`;
+
+    // Nearby barrels catch the blast and go off a moment later.
+    for (const b of this.barrels) {
+      if (b.exploded || b.fuse >= 0) continue;
+      if (b.group.position.distanceTo(tmp.set(at.x, b.group.position.y, at.z)) < e.radius * 0.7) b.fuse = e.barrelChainDelay;
+    }
+    // Too close for comfort: knocked back (player health arrives in Phase 3).
+    if (playerDist < e.radius * 0.8 && !this.player.invulnerable) {
+      this.player.hurt(at, e.playerPush * (1 - playerDist / (e.radius * 0.8)));
+      this.hud.hurtFlash();
+    }
+  }
+
+  private setupBarrels(): void {
+    this.barrels = [];
+    this.world.level.root.traverse((o) => {
+      if (!o.userData.barrel) return;
+      const meshes: Object3D[] = [];
+      o.traverse((c) => {
+        if ((c as Mesh).isMesh) meshes.push(c);
+      });
+      const collider =
+        this.world.level.colliders.find((c) => c.tag === 'explosive' && Math.hypot(c.x - o.position.x, c.z - o.position.z) < 0.05) ?? null;
+      this.barrels.push({ group: o, collider, meshes, exploded: false, fuse: -1 });
+    });
+  }
+
+  /** Puts blown-up barrels back for a new round. */
+  private restoreBarrels(): void {
+    for (const b of this.barrels) {
+      b.group.visible = true;
+      if (b.collider && !this.world.level.colliders.includes(b.collider)) this.world.level.colliders.push(b.collider);
+    }
+    this.barrels = [];
+  }
+
+  private barrelFor(obj: Object3D): Barrel | null {
+    if (!tuning.explosion.barrels) return null;
+    return this.barrels.find((b) => b.meshes.includes(obj)) ?? null;
+  }
+
+  private updateBarrels(dt: number): void {
+    for (const b of this.barrels) {
+      if (b.exploded || b.fuse < 0) continue;
+      b.fuse -= dt;
+      if (b.fuse > 0) continue;
+      b.exploded = true;
+      b.group.visible = false;
+      for (const m of b.meshes) this.world.disabled.add(m);
+      const cols = this.world.level.colliders;
+      if (b.collider && cols.includes(b.collider)) cols.splice(cols.indexOf(b.collider), 1);
+      this.explode(b.group.position.clone().setY(b.group.position.y + 0.55));
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -427,31 +1042,40 @@ export class Game {
   private fireShot(): void {
     this.stats.shots++;
     const def = this.player.def;
+    if (def.projectile) {
+      this.launchRocket();
+      return;
+    }
     const gun = this.player.stats;
     const aim = this.computeAim();
     this.player.muzzleWorld(muzzlePos);
-    const baseDir = new Vector3().subVectors(aim.point, muzzlePos).normalize();
+    const scoped = this.player.scoped;
+    // Through the scope the bullet leaves from the eye, so it lands exactly on the crosshair.
+    const origin = scoped ? this.cam.eye : muzzlePos;
+    const baseDir = new Vector3().subVectors(aim.point, origin).normalize();
     const shotgun = gun.pellets > 1;
+    const heavy = def.id === 'rifle' || def.id === 'magnum';
 
-    this.fx.muzzleFlash(muzzlePos, baseDir, shotgun ? 1.8 : 1);
+    if (!scoped) this.fx.muzzleFlash(muzzlePos, baseDir, shotgun ? 1.8 : heavy ? 1.6 : def.id === 'smg' ? 0.8 : 1);
     this.sfx.shot(def.sound);
-    this.cam.shake(tuning.feel.shakeShot * (shotgun ? 2.2 : 1));
+    this.cam.shake(tuning.feel.shakeShot * (shotgun ? 2.2 : heavy ? 2 : def.id === 'smg' ? 0.5 : 1));
 
-    // Trace every bullet / pellet from the barrel. Pellets fan out in a cone.
+    // Trace every bullet / pellet. Pellets fan out in a cone.
+    const goreOn = goreLevel() !== 'off';
     const perZombie = new Map<Zombie, { pellets: PelletHit[]; points: Vector3[]; dir: Vector3 }>();
     const corpseHits: Array<{ point: Vector3; dir: Vector3 }> = [];
     let wallSound = false;
     const dir = new Vector3();
     for (let i = 0; i < gun.pellets; i++) {
       randomInCone(baseDir, shotgun ? gun.pelletSpread : 0, dir);
-      const wall = this.world.raycast(muzzlePos, dir, gun.maxRange);
+      const wall = this.world.raycast(origin, dir, gun.maxRange);
       const stopAt = wall ? wall.distance : gun.maxRange;
-      const hits = this.castZombies(muzzlePos, dir, stopAt);
+      const hits = this.castZombies(origin, dir, stopAt);
       const passed = new Set<Zombie>();
       let stopped = false;
       for (const h of hits) {
-        const z = h.object.userData.zombie as Zombie;
-        if (passed.has(z)) continue;
+        const z = h.object.userData.zombie as Zombie | undefined;
+        if (!z || passed.has(z)) continue;
         passed.add(z);
         if (!z.alive) {
           corpseHits.push({ point: h.point.clone(), dir: dir.clone() });
@@ -464,7 +1088,15 @@ export class Game {
           entry = { pellets: [], points: [], dir: new Vector3() };
           perZombie.set(z, entry);
         }
-        entry.pellets.push({ zone: h.object.userData.zone as Zone, damage: gun.damage * k, knockback: gun.knockback * k });
+        const joint = h.object.parent?.name ?? '';
+        entry.pellets.push({
+          zone: h.object.userData.zone as Zone,
+          damage: gun.damage * k,
+          knockback: gun.knockback * k,
+          pop: gun.headPop * k,
+          sever: goreOn ? gun.dismember * k : 0,
+          segment: joint.startsWith('shoulder') || joint.startsWith('hip') ? 'upper' : 'lower',
+        });
         entry.points.push(h.point.clone());
         entry.dir.add(dir);
         if (passed.size > gun.pierce) {
@@ -473,6 +1105,8 @@ export class Game {
         }
       }
       if (!stopped && wall) {
+        const barrel = this.barrelFor(wall.object);
+        if (barrel && !barrel.exploded) barrel.fuse = 0;
         this.fx.surfaceImpact(wall.point, wall.normal, wall.surface, shotgun ? 0.4 : 1);
         if (!wallSound) this.sfx.impactSurface(wall.surface, wall.point);
         wallSound = true;
@@ -503,7 +1137,7 @@ export class Game {
     }
 
     for (const c of corpseHits.slice(0, 3)) {
-      this.fx.blood(c.point, c.dir, 0.5, this.world.groundHeight(c.point.x, c.point.z));
+      this.fx.blood(c.point, c.dir, 0.5 * bloodScale(), this.world.groundHeight(c.point.x, c.point.z));
     }
     if (corpseHits.length) this.sfx.impactFlesh('torso', corpseHits[0].point, false);
 
@@ -514,16 +1148,17 @@ export class Game {
     let summary: HitResult | null = null;
     let knockedDown = 0;
     for (const [z, entry] of perZombie) {
-      const result = resolveShot(entry.pellets, z.targetState, this.player.focus, tuning);
+      const result = resolveShot(entry.pellets, z.targetState, this.player.focus, tuning, Math.random, { critChance: gun.critChance });
       entry.dir.normalize();
       z.applyHit(result, entry.dir, this.sfx, this.zombieHost);
+      this.applyGore(z, result, entry.dir);
       if (result.reaction === 'knockdown' || result.killed) knockedDown++;
       if (entry.points.length === 0) continue; // only caught by the blast
-      if (!summary || result.pellets > summary.pellets) summary = result;
+      if (!summary || result.pellets > summary.pellets || result.headPop) summary = result;
       pelletHits++;
       entry.points.slice(0, 4).forEach((pt, i) => {
         const zone = entry.pellets[i].zone;
-        this.fx.blood(pt, entry.dir, (zone === 'head' ? 1.5 : 1) / Math.sqrt(entry.points.length), this.world.groundHeight(pt.x, pt.z));
+        this.fx.blood(pt, entry.dir, ((zone === 'head' ? 1.5 : 1) / Math.sqrt(entry.points.length)) * bloodScale(), this.world.groundHeight(pt.x, pt.z));
       });
       const group = zoneGroup(result.zone);
       this.sfx.impactFlesh(group, entry.points[0], result.killed);
@@ -541,7 +1176,7 @@ export class Game {
     }
     if (summary) {
       const others = knockedDown - (summary.reaction === 'knockdown' || summary.killed ? 1 : 0);
-      this.stats.lastHit = describeHit(summary) + (others > 0 ? ` (+${others} more bowled over)` : '');
+      this.stats.lastHit = describeHit(summary) + (others > 0 ? ` (+${others} more ${shotgun ? 'bowled over' : 'hit'})` : '');
     }
     if (pelletHits > 0) this.stats.hits++;
     if (headHit) {
@@ -564,7 +1199,9 @@ export class Game {
       const playing = !this.paused && this.mode !== null;
 
       const mouseActive = this.autotest || this.input.pointerLocked;
-      const look = this.controls.frame(dt, mouseActive, this.player.aiming);
+      const c = tuning.controls;
+      const lookScale = this.player.scoped ? tuning.camera.scopeSensitivity / Math.max(0.05, c.aimSensitivity) : 1;
+      const look = this.controls.frame(dt, mouseActive, this.player.aiming, lookScale);
       if (playing && !this.freeCam) this.cam.look(look.yaw, look.pitch);
       if (this.freeCam && !this.freeCamControls) this.flyCamera.look(look.yaw, look.pitch);
 
@@ -600,41 +1237,59 @@ export class Game {
     }
     this.gameTime += dt;
     this.tickCount++;
-    const input = this.freeCam && !this.freeCamControls
-      ? { moveX: 0, moveY: 0, aim: false, firePressed: false, reloadPressed: false, sprint: false, sprintPressed: false, weaponSlot: null, weaponCycle: 0 }
-      : this.controls.take();
+    this.grabCooldown = Math.max(0, this.grabCooldown - dt);
+    const input: PlayerInput = this.freeCam && !this.freeCamControls ? { ...NO_INPUT } : this.controls.take();
     for (const z of this.zombies) z.update(dt, this.zombieHost);
+
+    if (this.grabbedBy) {
+      this.tickGrab(dt, input);
+    } else {
+      this.computeMeleeOption();
+      if (input.meleePressed && this.meleeOption && !this.player.busy && this.player.stunTime <= 0) {
+        this.startMelee();
+        input.sprintPressed = false;
+      }
+    }
     this.player.tick(dt, input, this.cam, this.world, this.playerHost);
+    this.updateCarry();
+    this.updateRockets(dt);
+    this.updateBarrels(dt);
     for (const p of this.fallingProps) p.update(dt, this.world.groundHeight(p.object.position.x, p.object.position.z));
-    this.fx.update(dt, (x, z) => this.world.groundHeight(x, z));
+    const ground = (x: number, z: number) => this.world.groundHeight(x, z);
+    this.fx.update(dt, ground);
+    this.gore.update(dt, ground);
     this.manageZombies(dt);
   }
 
   private renderFrame(dt: number, alpha: number, playing: boolean): void {
     // Camera follows the smoothed player position.
     tmp.lerpVectors(this.player.prevPosition, this.player.position, alpha);
+    const p = this.player;
     if (this.freeCam) {
       this.flyCamera.update(dt);
     } else {
-        this.cam.recoilRecovery = this.player.stats.recoilRecovery;
-      this.cam.update(dt, tmp, playing && this.player.aiming, this.world);
+      this.cam.recoilRecovery = p.stats.recoilRecovery;
+      // Through the scope the camera sits at the eye.
+      const eye = p.scoped && playing ? tmp3.copy(tmp).setY(tmp.y + 1.62).addScaledVector(p.forward(tmp2), 0.12) : null;
+      this.cam.update(dt, tmp, playing && p.aiming, this.world, eye);
     }
     for (const z of this.zombies) z.render(alpha);
 
     if (this.mode) {
       const aim = this.computeAim();
-      this.player.render(alpha, aim.point, this.cam);
+      p.render(alpha, aim.point, this.cam);
+      const scoped = p.scoped && playing;
       // Laser sight from the module under the barrel to whatever it hits.
-      const showLaser = playing && this.player.aiming && (this.cam.aimBlend > 0.6 || this.freeCam);
+      const showLaser = playing && p.aiming && !scoped && (this.cam.aimBlend > 0.6 || this.freeCam);
       if (showLaser) {
-        this.player.laserWorld(laserPos);
+        p.laserWorld(laserPos);
         const toAim = tmp2.subVectors(aim.point, laserPos);
         const d = toAim.length();
         toAim.normalize();
         const wall = this.world.raycast(laserPos, toAim, d + 0.05);
         const zh = this.castZombies(laserPos, toAim, wall ? wall.distance : d + 0.3);
         const end = zh.length ? zh[0].point : wall ? wall.point : aim.point;
-        const hitSomething = zh.length > 0 || wall !== null || d < this.player.stats.maxRange - 1;
+        const hitSomething = zh.length > 0 || wall !== null || d < p.stats.maxRange - 1;
         const beam = settings.laserBeam && settings.crosshair !== 'none';
         const dot = hitSomething && settings.crosshair !== 'none' ? end : null;
         this.fx.setLaser(beam ? laserPos : null, beam ? end : null, dot);
@@ -642,19 +1297,27 @@ export class Game {
         this.fx.setLaser(null, null, null);
       }
       // Reticle size on screen matches the real aim wobble (plus the pellet spread for shotguns).
-      const p = this.player;
       const ps = p.stats;
       const spread = MathUtils.degToRad(p.reticle.spread + (ps.pellets > 1 ? ps.pelletSpread : 0));
       const radius = (Math.tan(spread) / Math.tan(MathUtils.degToRad(this.camera.fov / 2))) * (window.innerHeight / 2);
       this.hud.setReticle(showLaser ? radius : null, p.focus);
+      if (scoped) {
+        // The scope crosshair drifts with the aim wobble.
+        const s = tmp2.copy(aim.point).project(this.camera);
+        this.hud.setScope(true, (s.x * window.innerWidth) / 2, (-s.y * window.innerHeight) / 2);
+      } else {
+        this.hud.setScope(false);
+      }
       const g = p.gun;
       const reload = g.reloading ? (g.def.reload === 'shells' ? g.ammo / ps.capacity : g.reloadProgress) : null;
       this.hud.setAmmo(g.ammo, tuning.weapons.infiniteAmmo ? null : g.reserve, reload);
       this.hud.setWeaponName(g.def.name);
+      this.hud.setKnife(p.knife.condition);
       if (p.selected !== this.lastWeapon || p.switching) {
         this.lastWeapon = p.selected;
         this.hud.showWeapons(WEAPONS.map((w) => ({ slot: w.slot, name: w.name })), p.selected);
       }
+      this.updatePrompts(playing);
       this.hud.setStats(this.mode === 'range' ? this.stats : null);
       const padName = this.pad.connected ? (this.pad.type === 'playstation' ? 'Options' : 'Menu') : null;
       this.hud.setHint(this.controls.lastDevice === 'gamepad' && padName ? `${padName}: menu & controls` : 'Esc: menu & controls  ·  F1: tuning');
@@ -667,6 +1330,31 @@ export class Game {
     this.applyGraphicsTuning();
     this.post.render(Math.min(dt, 0.1));
     this.fps.frame(dt);
+  }
+
+  /** The melee prompt over a stunned zombie, and the break-free bar while grabbed. */
+  private updatePrompts(playing: boolean): void {
+    const padType = this.pad.connected && this.controls.lastDevice === 'gamepad' ? this.pad.type : null;
+    const meleeKey = padType ? padButtonName(PAD.south, padType) : 'F';
+    const knifeKey = padType ? padButtonName(PAD.r1, padType) : 'V';
+    const opt = playing ? this.meleeOption : null;
+    if (opt) {
+      const at = opt.zombie.bodyCenter(tmp).setY(opt.zombie.position.y + (opt.zombie.lying ? 0.8 : 2.0));
+      const s = at.project(this.camera);
+      if (s.z < 1 && Math.abs(s.x) < 1.1 && Math.abs(s.y) < 1.1) {
+        this.hud.setMeleePrompt({ x: ((s.x + 1) / 2) * window.innerWidth, y: ((1 - s.y) / 2) * window.innerHeight }, meleeKey, MELEE_NAMES[opt.move]);
+      } else {
+        this.hud.setMeleePrompt(null, '', '');
+      }
+    } else {
+      this.hud.setMeleePrompt(null, '', '');
+    }
+    const st = this.struggle;
+    this.hud.setGrab(
+      st && playing
+        ? { progress: st.progress, timeLeft: st.timeLeft, mash: meleeKey, knife: knifeKey, canKnife: !this.player.knife.broken }
+        : null,
+    );
   }
 
   private handleGlobalKeys(): void {
@@ -752,10 +1440,9 @@ export class Game {
 
   /** Points the camera straight at a body part of the first living zombie. */
   debugAimAt(zone: Zone): boolean {
-    const z = this.zombies.find((zz) => zz.alive);
+    const z = this.zombies.find((zz) => zz.alive && zz.parts.some((p) => p.userData.zone === zone));
     if (!z) return false;
-    const part = z.parts.find((p) => p.userData.zone === zone);
-    if (!part) return false;
+    const part = z.parts.find((p) => p.userData.zone === zone)!;
     const target = part.getWorldPosition(new Vector3());
     for (let i = 0; i < 3; i++) {
       const d = tmp.subVectors(target, this.camera.position).normalize();
@@ -778,6 +1465,30 @@ export class Game {
     settings.crosshair = crosshair;
   }
 
+  /**
+   * For automated tests: puts the first living zombie into a state, or makes
+   * it grab the player, or places it `distance` metres in front of the player.
+   */
+  debugZombie(kind: 'headStagger' | 'kneel' | 'kneelAway' | 'down' | 'grab' | 'place', value = 6): boolean {
+    const z = this.zombies.find((zz) => zz.alive);
+    if (!z) return false;
+    if (kind === 'grab') {
+      if (this.grabbedBy) return false;
+      const f = this.player.forward(new Vector3());
+      z.teleport(this.player.position.x + f.x * 0.55, this.player.position.z + f.z * 0.55, this.player.yaw + Math.PI);
+      (z as unknown as { state: string }).state = 'grabbing';
+      this.startGrab(z);
+      return true;
+    }
+    if (kind === 'place') {
+      const f = this.player.forward(new Vector3());
+      z.teleport(this.player.position.x + f.x * value, this.player.position.z + f.z * value, this.player.yaw + Math.PI);
+      return true;
+    }
+    z.debugForce(kind, value);
+    return true;
+  }
+
   debugState() {
     return {
       mode: this.mode,
@@ -786,15 +1497,37 @@ export class Game {
       ammo: this.player.gun.ammo,
       reloading: this.player.gun.reloading,
       aiming: this.player.aiming,
+      scoped: this.player.scoped,
       focus: this.player.focus,
       player: this.player.position.toArray(),
       yaw: this.player.yaw,
       cameraYaw: this.cam.yaw,
       stats: { ...this.stats },
-      zombies: this.zombies.map((z) => ({ state: z.state, health: z.health, alive: z.alive, holdingTool: z.holdingTool, behavior: z.behavior })),
+      zombies: this.zombies.map((z) => ({
+        state: z.state,
+        stateTime: z.stateTime,
+        health: z.health,
+        alive: z.alive,
+        holdingTool: z.holdingTool,
+        behavior: z.behavior,
+        headless: z.headless,
+        gibbed: z.gibbed,
+        missing: [...z.missing.keys()],
+        openTo: z.openTo,
+      })),
+      melee: this.player.melee,
+      meleePrompt: this.meleeOption?.move ?? null,
+      grabbed: this.player.grabbed,
+      grabProgress: this.struggle?.progress ?? 0,
+      knife: this.player.knife.durability,
+      knifeSlashing: this.player.knifeTime > 0,
+      rockets: this.rockets.length,
+      barrelsExploded: this.barrels.filter((b) => b.exploded).length,
+      goreChunks: this.gore.chunkCount,
       audioRunning: this.sfx.ready,
       soundsLoaded: this.sfx.samplesLoaded,
       crosshair: settings.crosshair,
+      gore: settings.gore,
       padConnected: this.pad.connected,
       padType: this.pad.type,
       lastDevice: this.controls.lastDevice,

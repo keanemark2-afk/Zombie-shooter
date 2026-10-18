@@ -159,21 +159,26 @@ class CasingPool {
 
 /** All the visual "juice": blood, dust, sparks, bullet holes, casings, muzzle flash and the laser sight. */
 export class Effects {
-  readonly smoke = new ParticleSystem(700);
-  readonly glow = ParticleSystem.additive(300);
+  readonly smoke = new ParticleSystem(1400);
+  readonly glow = ParticleSystem.additive(600);
   readonly holes = new DecalPool('hole', 80);
-  readonly bloodDecals = new DecalPool('blood', 48);
+  readonly bloodDecals = new DecalPool('blood', 80);
+  readonly scorch = new DecalPool('scorch', 16);
   private readonly casings: Record<CasingKind, CasingPool>;
   private readonly flash: Sprite;
   private readonly flashLight: PointLight;
   private flashTime = 0;
+  private readonly boom: Sprite;
+  private readonly boomLight: PointLight;
+  private boomTime = 0;
+  private boomSize = 1;
   private readonly laserBeam: Mesh;
   private readonly laserDot: Sprite;
   /** Called when a casing first hits the ground (for its tinkle or thunk sound). */
   onShellLand: ((pos: Vector3, kind: CasingKind) => void) | null = null;
 
   constructor(scene: Scene) {
-    scene.add(this.smoke.points, this.glow.points, this.holes.mesh, this.bloodDecals.mesh);
+    scene.add(this.smoke.points, this.glow.points, this.holes.mesh, this.bloodDecals.mesh, this.scorch.mesh);
 
     const brass = new MeshStandardMaterial({ color: '#b08d45', metalness: 0.9, roughness: 0.35 });
     const hull = new MeshStandardMaterial({ color: '#8c1f18', roughness: 0.6 });
@@ -190,6 +195,13 @@ export class Effects {
     // Always in the scene (switching lights on/off would rebuild every shader).
     this.flashLight = new PointLight('#ffb36b', 0, 9, 2);
     scene.add(this.flashLight);
+    // The fireball of an explosion and its light (also always in the scene).
+    this.boom = new Sprite(new SpriteMaterial({ map: this.flash.material.map, blending: AdditiveBlending, depthWrite: false, transparent: true }));
+    this.boom.visible = false;
+    this.boom.raycast = () => {};
+    scene.add(this.boom);
+    this.boomLight = new PointLight('#ff9a4a', 0, 28, 2);
+    scene.add(this.boomLight);
 
     this.laserBeam = new Mesh(
       new CylinderGeometry(0.0022, 0.0022, 1, 4, 1, true).translate(0, 0.5, 0),
@@ -298,6 +310,71 @@ export class Effects {
     }
   }
 
+  /** A rocket or barrel going off: fireball, flash of light, fire, smoke, flying dirt and a scorch mark. */
+  explosion(at: Vector3, groundY: number, size = 1): void {
+    this.boom.position.copy(at);
+    this.boom.material.rotation = Math.random() * Math.PI * 2;
+    this.boom.visible = true;
+    this.boomTime = 0;
+    this.boomSize = size;
+    this.boomLight.position.copy(at).y += 0.6;
+    this.boomLight.intensity = 260 * size;
+    // Fire.
+    for (let i = 0; i < 46; i++) {
+      v.set(Math.random() - 0.5, Math.random() * 0.8 + 0.1, Math.random() - 0.5).normalize().multiplyScalar((2 + Math.random() * 5) * size);
+      color.setRGB(1, 0.45 + Math.random() * 0.35, 0.1 + Math.random() * 0.15);
+      this.glow.spawn({ position: at, velocity: v, life: 0.25 + Math.random() * 0.45, size: (0.25 + Math.random() * 0.4) * size, grow: 2.2, color, drag: 3.5, gravity: -0.05 });
+    }
+    // Hot sparks and embers.
+    for (let i = 0; i < 26; i++) {
+      v.set(Math.random() - 0.5, Math.random() * 0.9 + 0.2, Math.random() - 0.5).normalize().multiplyScalar(5 + Math.random() * 8);
+      color.setRGB(1, 0.65, 0.25);
+      this.glow.spawn({ position: at, velocity: v, life: 0.5 + Math.random() * 0.8, size: 0.03, color, gravity: 0.7, drag: 0.6 });
+    }
+    // Rolling black smoke that rises and spreads.
+    for (let i = 0; i < 34; i++) {
+      v.set(Math.random() - 0.5, Math.random() * 0.6 + 0.3, Math.random() - 0.5).normalize().multiplyScalar((1 + Math.random() * 2.5) * size);
+      const g = 0.06 + Math.random() * 0.06;
+      color.setRGB(g, g * 0.92, g * 0.85);
+      this.smoke.spawn({ position: at, velocity: v, life: 2 + Math.random() * 2, size: (0.4 + Math.random() * 0.4) * size, grow: 4.5, color, alpha: 0.55, drag: 1.4, gravity: -0.04 });
+    }
+    // Dirt thrown up.
+    color.set('#5b4a38');
+    for (let i = 0; i < 30; i++) {
+      v.set(Math.random() - 0.5, Math.random() * 0.8 + 0.5, Math.random() - 0.5).normalize().multiplyScalar(4 + Math.random() * 6);
+      this.smoke.spawn({ position: at, velocity: v, life: 0.9 + Math.random() * 0.6, size: 0.04 + Math.random() * 0.05, color, gravity: 1, drag: 0.4 });
+    }
+    if (at.y - groundY < 1.2) this.scorch.add(v2.set(at.x, groundY, at.z), UP, 2.6 * size);
+  }
+
+  /** Smoke and flame behind a flying rocket. */
+  rocketTrail(at: Vector3, dir: Vector3): void {
+    v.copy(dir).multiplyScalar(-1.5);
+    v.x += (Math.random() - 0.5) * 0.4;
+    v.y += Math.random() * 0.3;
+    v.z += (Math.random() - 0.5) * 0.4;
+    const g = 0.45 + Math.random() * 0.15;
+    color.setRGB(g, g, g * 0.95);
+    this.smoke.spawn({ position: at, velocity: v, life: 1 + Math.random() * 0.8, size: 0.12, grow: 5, color, alpha: 0.35, drag: 2, gravity: -0.02 });
+    color.setRGB(1, 0.6, 0.2);
+    this.glow.spawn({ position: at, velocity: v.multiplyScalar(0.5), life: 0.08, size: 0.16, color, drag: 4 });
+  }
+
+  /** Sparks flying off the knife blade when it parries. */
+  parrySpark(at: Vector3, perfect: boolean): void {
+    color.set(perfect ? '#fff2c0' : '#ffc070');
+    for (let i = 0; i < (perfect ? 26 : 12); i++) {
+      v.set(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).normalize().multiplyScalar(2 + Math.random() * 4);
+      this.glow.spawn({ position: at, velocity: v, life: 0.15 + Math.random() * 0.25, size: 0.025, color, gravity: 0.5, drag: 1 });
+    }
+    this.flash.position.copy(at);
+    this.flash.scale.setScalar(perfect ? 0.5 : 0.25);
+    this.flash.visible = true;
+    this.flashTime = 0.06;
+    this.flashLight.position.copy(at);
+    this.flashLight.intensity = perfect ? 25 : 10;
+  }
+
   /** Flicks a spent casing (or shotgun hull) out of the ejection port. */
   ejectShell(at: Vector3, right: Vector3, kind: CasingKind = 'brass'): void {
     this.casings[kind].eject(at, right);
@@ -327,6 +404,17 @@ export class Effects {
     this.glow.update(dt, groundAt);
     this.holes.update(dt, tuning.feel.decalLife);
     this.bloodDecals.update(dt, tuning.feel.decalLife);
+    this.scorch.update(dt, tuning.feel.decalLife * 2);
+
+    if (this.boom.visible) {
+      this.boomTime += dt;
+      const u = this.boomTime / 0.35;
+      if (u >= 1) this.boom.visible = false;
+      this.boom.scale.setScalar((2.5 + 4 * u) * this.boomSize);
+      this.boom.material.opacity = 1 - u;
+    }
+    this.boomLight.intensity *= Math.exp(-7 * dt);
+    if (this.boomLight.intensity < 0.5) this.boomLight.intensity = 0;
 
     this.flashTime -= dt;
     if (this.flashTime <= 0) {

@@ -510,3 +510,173 @@ body {
   background: #ff3020;
   box-shadow: 0 0 8px 3px rgba(255, 40, 30, 0.55);
 }
+
+/* ---------- Phase 2: melee prompt, grab struggle, knife, scope ---------- */
+.melee-prompt {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 4px;
+  background: rgba(10, 8, 8, 0.72);
+  border: 1px solid rgba(255, 210, 150, 0.55);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: prompt-pulse 0.7s ease-in-out infinite alternate;
+}
+
+.melee-prompt .key {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  display: inline-grid;
+  place-items: center;
+  background: #e8d9bf;
+  color: #1a1410;
+  border-radius: 3px;
+  font-family: 'Segoe UI Symbol', 'Segoe UI', system-ui, sans-serif;
+}
+
+@keyframes prompt-pulse {
+  from { box-shadow: 0 0 0 rgba(255, 190, 110, 0); }
+  to { box-shadow: 0 0 14px rgba(255, 190, 110, 0.55); }
+}
+
+.grab-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%);
+  width: min(360px, 80vw);
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 1px 3px #000;
+  pointer-events: none;
+}
+
+.grab-title {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: #ff5a4a;
+  animation: grab-shake 0.12s linear infinite alternate;
+}
+
+@keyframes grab-shake {
+  from { transform: translateX(-2px); }
+  to { transform: translateX(2px); }
+}
+
+.grab-text { margin: 4px 0 6px; font-size: 15px; }
+.grab-text b, .grab-knife b {
+  display: inline-block;
+  min-width: 20px;
+  padding: 0 4px;
+  background: #e8d9bf;
+  color: #1a1410;
+  border-radius: 3px;
+  text-shadow: none;
+}
+
+.grab-bar {
+  height: 12px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.grab-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #ffb347, #fff2c0);
+}
+
+.grab-time {
+  height: 3px;
+  margin-top: 3px;
+  background: #ff4a3d;
+}
+
+.grab-knife { margin-top: 6px; font-size: 13px; color: #e8d9bf; }
+
+.knife-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--text-dim);
+}
+
+.knife-track {
+  width: 70px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.knife-fill {
+  height: 100%;
+  width: 100%;
+  background: #c9cfd3;
+}
+
+.knife-bar.low .knife-fill { background: #ff8a3d; }
+.knife-bar.broken span { color: #ff4a3d; text-decoration: line-through; }
+
+.scope {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0) 40vh, rgba(0, 0, 0, 0.85) 41vh, #000 43vh);
+  pointer-events: none;
+}
+
+.scope-cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+
+.scope-cross i {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.scope-cross i.h { left: -40vh; width: 80vh; top: -1px; height: 2px; }
+.scope-cross i.v { top: -40vh; height: 80vh; left: -1px; width: 2px; }
+
+.scope-cross b {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff2a1a;
+  box-shadow: 0 0 4px #ff2a1a;
+}
+
+.banner {
+  position: absolute;
+  left: 50%;
+  top: 21%;
+  transform: translate(-50%, -50%) scale(0.9);
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  color: #fff3d0;
+  text-shadow: 0 0 12px rgba(255, 200, 120, 0.8), 0 2px 4px #000;
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+  pointer-events: none;
+}
+
+.banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.banner.gore { color: #ff6a55; text-shadow: 0 0 12px rgba(255, 60, 40, 0.7), 0 2px 4px #000; }

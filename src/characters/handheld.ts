@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  ConeGeometry,
   CylinderGeometry,
   Group,
   Mesh,
@@ -20,6 +21,7 @@ const rustyBlade = new MeshStandardMaterial({ color: '#6b5b4e', roughness: 0.55,
 
 export interface PistolModel {
   group: Group;
+  /** The part that moves when it fires: the pistol's slide, or the revolver's hammer. */
   slide: Mesh;
   /** End of the barrel, where bullets and the muzzle flash come from. */
   muzzle: Object3D;
@@ -82,9 +84,13 @@ export interface LongGunModel {
   action: Object3D;
   /** How far the action travels when pulled back, in metres. */
   actionTravel: number;
+  /** Where the left hand goes to swap a magazine, drum or rocket. */
+  reloadPoint: Object3D;
+  /** Shown only while loaded (the rocket's warhead). */
+  loaded?: Object3D;
 }
 
-function gunPart(parent: Object3D, geo: BoxGeometry | CylinderGeometry, mat: MeshStandardMaterial, x: number, y: number, z: number, rotX = 0): Mesh {
+function gunPart(parent: Object3D, geo: BoxGeometry | CylinderGeometry | ConeGeometry, mat: MeshStandardMaterial, x: number, y: number, z: number, rotX = 0): Mesh {
   const m = new Mesh(geo, mat);
   m.position.set(x, y, z);
   m.rotation.x = rotX;
@@ -126,6 +132,7 @@ export function buildPumpShotgun(): LongGunModel {
     fore,
     action,
     actionTravel: 0.1,
+    reloadPoint: point(g, 0, -0.06, -0.36),
   };
 }
 
@@ -158,7 +165,179 @@ export function buildDrumShotgun(): LongGunModel {
     fore: point(g, 0, -0.1, -0.6),
     action,
     actionTravel: 0.06,
+    reloadPoint: point(g, 0, -0.09, -0.4),
   };
+}
+
+const oliveDrab = new MeshStandardMaterial({ color: '#4a5236', roughness: 0.75, metalness: 0.15 });
+const scopeGlass = new MeshStandardMaterial({ color: '#1b2a33', roughness: 0.1, metalness: 0.6, emissive: '#0a1418' });
+const warheadPaint = new MeshStandardMaterial({ color: '#5d5a3a', roughness: 0.6, metalness: 0.3 });
+
+/** Submachine gun: wire stock, stubby barrel shroud, long straight magazine. */
+export function buildSmg(): LongGunModel {
+  const g = new Group();
+  const along = Math.PI / 2;
+  // Folding wire stock.
+  gunPart(g, new BoxGeometry(0.01, 0.07, 0.012), gunMetal, 0, -0.02, -0.01);
+  gunPart(g, new BoxGeometry(0.008, 0.008, 0.2), gunMetal, 0.016, 0.012, -0.1);
+  gunPart(g, new BoxGeometry(0.008, 0.008, 0.2), gunMetal, -0.016, 0.012, -0.1);
+  gunPart(g, new BoxGeometry(0.008, 0.008, 0.2), gunMetal, 0, -0.05, -0.1, 0.18);
+  // Receiver with a ribbed shroud and the barrel poking out.
+  gunPart(g, new CylinderGeometry(0.026, 0.026, 0.3, 10), gunMetal, 0, 0.01, -0.34, along);
+  gunPart(g, new CylinderGeometry(0.03, 0.03, 0.16, 10), blackPoly, 0, 0.01, -0.5, along);
+  gunPart(g, new CylinderGeometry(0.009, 0.009, 0.08, 8), gunMetal, 0, 0.01, -0.62, along);
+  const action = new Group();
+  action.position.set(0.03, 0.02, -0.3);
+  g.add(action);
+  gunPart(action, new BoxGeometry(0.014, 0.012, 0.025), gunMetal, 0, 0, 0);
+  gunPart(g, new BoxGeometry(0.026, 0.09, 0.035), gunGrip, 0, -0.055, -0.24, 0.25);
+  gunPart(g, new BoxGeometry(0.022, 0.19, 0.034), gunMetal, 0, -0.1, -0.36, -0.08);
+  gunPart(g, new BoxGeometry(0.016, 0.02, 0.05), laserBody, 0, -0.025, -0.5);
+  return {
+    group: g,
+    muzzle: point(g, 0, 0.01, -0.67),
+    laser: point(g, 0, -0.025, -0.53),
+    ejectionPort: point(g, 0.03, 0.02, -0.32),
+    grip: point(g, 0, -0.07, -0.24),
+    fore: point(g, 0, -0.03, -0.5),
+    action,
+    actionTravel: 0.05,
+    reloadPoint: point(g, 0, -0.17, -0.36),
+  };
+}
+
+/** Bolt-action hunting rifle: long wooden stock, long barrel, telescopic sight. */
+export function buildRifle(): LongGunModel {
+  const g = new Group();
+  const along = Math.PI / 2;
+  gunPart(g, new BoxGeometry(0.04, 0.12, 0.24), stockWood, 0, -0.04, -0.12, -0.15);
+  gunPart(g, new BoxGeometry(0.036, 0.06, 0.16), stockWood, 0, -0.02, -0.28, 0.12);
+  gunPart(g, new BoxGeometry(0.04, 0.05, 0.5), stockWood, 0, -0.01, -0.58);
+  gunPart(g, new BoxGeometry(0.038, 0.05, 0.2), gunMetal, 0, 0.02, -0.38);
+  gunPart(g, new CylinderGeometry(0.012, 0.014, 0.62, 10), gunMetal, 0, 0.022, -0.86, along);
+  // Telescopic sight on two rings.
+  gunPart(g, new CylinderGeometry(0.022, 0.022, 0.26, 12), gunMetal, 0, 0.085, -0.42, along);
+  gunPart(g, new CylinderGeometry(0.03, 0.022, 0.06, 12), gunMetal, 0, 0.085, -0.57, along);
+  gunPart(g, new CylinderGeometry(0.027, 0.022, 0.05, 12), gunMetal, 0, 0.085, -0.28, along);
+  gunPart(g, new CylinderGeometry(0.026, 0.026, 0.004, 12), scopeGlass, 0, 0.085, -0.6, along);
+  gunPart(g, new BoxGeometry(0.012, 0.04, 0.012), gunMetal, 0, 0.055, -0.36);
+  gunPart(g, new BoxGeometry(0.012, 0.04, 0.012), gunMetal, 0, 0.055, -0.48);
+  // The bolt handle on the right: it slides back after each shot.
+  const action = new Group();
+  action.position.set(0.03, 0.03, -0.33);
+  g.add(action);
+  gunPart(action, new CylinderGeometry(0.006, 0.006, 0.05, 6), gunMetal, 0.02, 0, 0).rotation.z = Math.PI / 2;
+  gunPart(action, new CylinderGeometry(0.012, 0.012, 0.012, 8), gunMetal, 0.045, 0, 0);
+  return {
+    group: g,
+    muzzle: point(g, 0, 0.022, -1.18),
+    laser: point(g, 0, 0.022, -1.18),
+    ejectionPort: point(g, 0.03, 0.03, -0.36),
+    grip: point(g, 0, -0.07, -0.27),
+    fore: point(g, 0, -0.04, -0.66),
+    action,
+    actionTravel: 0.09,
+    reloadPoint: point(g, 0, 0.04, -0.36),
+  };
+}
+
+/** Rocket launcher: a long tube that rests on the right shoulder, with a warhead poking out the front. */
+export function buildRocketLauncher(): LongGunModel {
+  const g = new Group();
+  const along = Math.PI / 2;
+  const y = 0.095; // the tube sits on top of the shoulder
+  gunPart(g, new CylinderGeometry(0.055, 0.055, 1.0, 14), oliveDrab, 0, y, -0.25, along);
+  gunPart(g, new CylinderGeometry(0.065, 0.06, 0.08, 14), blackPoly, 0, y, 0.24, along);
+  gunPart(g, new CylinderGeometry(0.062, 0.062, 0.05, 14), blackPoly, 0, y, -0.72, along);
+  gunPart(g, new BoxGeometry(0.03, 0.1, 0.04), blackPoly, 0, y - 0.1, -0.14, 0.2);
+  gunPart(g, new BoxGeometry(0.03, 0.09, 0.035), blackPoly, 0, y - 0.095, -0.42, 0.1);
+  gunPart(g, new BoxGeometry(0.03, 0.05, 0.08), blackPoly, -0.07, y + 0.03, -0.35);
+  gunPart(g, new BoxGeometry(0.016, 0.02, 0.05), laserBody, 0, y - 0.065, -0.6);
+  const warhead = new Group();
+  warhead.position.set(0, y, -0.78);
+  g.add(warhead);
+  gunPart(warhead, new CylinderGeometry(0.045, 0.045, 0.08, 12), warheadPaint, 0, 0, 0, along);
+  gunPart(warhead, new ConeGeometry(0.045, 0.16, 12), warheadPaint, 0, 0, -0.12, -along);
+  const action = new Group();
+  g.add(action);
+  return {
+    group: g,
+    muzzle: point(g, 0, y, -0.86),
+    laser: point(g, 0, y - 0.065, -0.63),
+    ejectionPort: point(g, 0, y, 0.3),
+    grip: point(g, 0, y - 0.13, -0.14),
+    fore: point(g, 0, y - 0.12, -0.42),
+    action,
+    actionTravel: 0,
+    reloadPoint: point(g, 0, y, -0.8),
+    loaded: warhead,
+  };
+}
+
+const revolverWood = new MeshStandardMaterial({ color: '#4d2f1d', roughness: 0.6 });
+const steel = new MeshStandardMaterial({ color: '#8d9296', roughness: 0.3, metalness: 0.9 });
+
+/** Big revolver: long barrel, fat cylinder, wooden grip. Same hand layout as the pistol. */
+export function buildMagnum(): PistolModel {
+  const group = new Group();
+  const noHit = (m: Mesh) => {
+    m.castShadow = true;
+    m.raycast = () => {};
+    group.add(m);
+    return m;
+  };
+  const frame = noHit(new Mesh(new BoxGeometry(0.03, 0.1, 0.035), steel));
+  frame.position.set(0, -0.06, -0.035);
+  const cyl = noHit(new Mesh(new CylinderGeometry(0.024, 0.024, 0.05, 12), steel));
+  cyl.position.set(0, -0.07, -0.04);
+  const barrel = noHit(new Mesh(new CylinderGeometry(0.011, 0.012, 0.19, 10), steel));
+  barrel.position.set(0, -0.2, -0.05);
+  const rib = noHit(new Mesh(new BoxGeometry(0.012, 0.19, 0.012), steel));
+  rib.position.set(0, -0.2, -0.064);
+  const lug = noHit(new Mesh(new BoxGeometry(0.014, 0.15, 0.016), steel));
+  lug.position.set(0, -0.19, -0.032);
+  const grip = noHit(new Mesh(new BoxGeometry(0.03, 0.05, 0.11), revolverWood));
+  grip.position.set(0, 0.0, 0.03);
+  grip.rotation.x = -0.3;
+  const guard = noHit(new Mesh(new BoxGeometry(0.01, 0.05, 0.03), steel));
+  guard.position.set(0, -0.035, 0.0);
+  const hammer = noHit(new Mesh(new BoxGeometry(0.008, 0.015, 0.02), steel));
+  hammer.position.set(0, -0.02, -0.06);
+  const laserBox = noHit(new Mesh(new BoxGeometry(0.02, 0.045, 0.02), laserBody));
+  laserBox.position.set(0, -0.14, -0.012);
+
+  const muzzle = new Object3D();
+  muzzle.position.set(0, -0.3, -0.05);
+  group.add(muzzle);
+  const laser = new Object3D();
+  laser.position.set(0, -0.165, -0.012);
+  group.add(laser);
+  const ejectionPort = new Object3D();
+  ejectionPort.position.set(0.02, -0.07, -0.04);
+  group.add(ejectionPort);
+  return { group, slide: hammer, muzzle, laser, ejectionPort };
+}
+
+const bladeSteel = new MeshStandardMaterial({ color: '#b9bec2', roughness: 0.25, metalness: 0.95 });
+
+/** The combat knife, held in the left hand with the blade out of the thumb side of the fist. */
+export function buildKnife(): Group {
+  const g = new Group();
+  const add = (m: Mesh) => {
+    m.castShadow = true;
+    m.raycast = () => {};
+    g.add(m);
+    return m;
+  };
+  add(new Mesh(new BoxGeometry(0.022, 0.026, 0.1), gunGrip)).position.set(0, 0, 0.02);
+  add(new Mesh(new BoxGeometry(0.03, 0.03, 0.008), gunMetal)).position.set(0, 0, -0.032);
+  const blade = add(new Mesh(new BoxGeometry(0.004, 0.026, 0.15), bladeSteel));
+  blade.position.set(0, 0.002, -0.11);
+  const tip = add(new Mesh(new ConeGeometry(0.013, 0.04, 4), bladeSteel));
+  tip.rotation.x = -Math.PI / 2;
+  tip.scale.set(0.3, 1, 1);
+  tip.position.set(0, 0.002, -0.2);
+  return g;
 }
 
 export type ToolKind = 'sickle' | 'club';

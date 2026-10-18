@@ -6,8 +6,9 @@ import { tuning } from '../config/tuning';
 import type { ZombieVoice } from '../enemies/zombie';
 import type { Surface } from '../world/props';
 
-// Every sound in the game is synthesised here with the Web Audio API, so there
-// are no sound files at all (and nothing borrowed from anyone else).
+// Sounds are synthesised here with the Web Audio API, plus a few real CC0
+// recordings (gunshots, explosions, squelches; see CREDITS.md) layered with
+// generated thumps so they hit hard.
 
 type FilterKind = 'lowpass' | 'highpass' | 'bandpass';
 
@@ -41,6 +42,12 @@ const SAMPLES: Record<string, string[]> = {
   revolver: ['revolver-1', 'revolver-2'],
   pumpRack: ['pump-rack'],
   shellIn: ['shell-in'],
+  smg: ['smg-1', 'smg-2', 'smg-3'],
+  rifle: ['rifle-1', 'rifle-2', 'rifle-3'],
+  magnum: ['magnum-1', 'magnum-2'],
+  explosion: ['explosion-1'],
+  explosionSmall: ['explosion-2'],
+  splat: ['splat-a-1', 'splat-a-2', 'splat-b-1', 'splat-b-2'],
 };
 
 const forward = new Vector3();
@@ -148,7 +155,7 @@ export class Sfx implements ZombieVoice {
    */
   private playSample(
     key: string,
-    o: { gain: number; pos?: Vector3 | null; echo?: number; lowBoost?: number; presence?: number; pitch?: number },
+    o: { gain: number; pos?: Vector3 | null; echo?: number; lowBoost?: number; presence?: number; pitch?: number; lowpass?: number },
   ): boolean {
     const list = this.samples.get(key);
     if (!list || !this.ctx) return false;
@@ -165,6 +172,13 @@ export class Sfx implements ZombieVoice {
       low.gain.value = o.lowBoost;
       node.connect(low);
       node = low;
+    }
+    if (o.lowpass) {
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = o.lowpass;
+      node.connect(lp);
+      node = lp;
     }
     if (o.presence) {
       const mid = ctx.createBiquadFilter();
@@ -357,20 +371,66 @@ export class Sfx implements ZombieVoice {
   /** The right bang for the gun in your hands. */
   shot(kind: WeaponDef['sound']): void {
     if (!this.ready) return;
+    if (kind === 'rocket') {
+      this.rocketLaunch();
+      return;
+    }
     if (settings.gunshotSound === 'recorded' && this.recordedShot(kind)) return;
-    if (kind === 'pistol') this.gunshot();
+    if (kind === 'pistol' || kind === 'smg') this.gunshot(kind === 'smg' ? 0.7 : 1);
+    else if (kind === 'rifle' || kind === 'magnum') this.heavyShot();
     else this.shotgunBlast(kind === 'shotgun');
   }
 
   /** A real recorded gunshot, made punchier with a low thump layered underneath. */
   private recordedShot(kind: WeaponDef['sound']): boolean {
-    const key = kind === 'pistol' ? 'pistol' : kind === 'shotgun' ? 'pump' : 'drum';
-    const shotgun = kind !== 'pistol';
-    const played = this.playSample(key, { gain: shotgun ? 1.1 : 1.0, echo: shotgun ? 0.35 : 0.28, lowBoost: shotgun ? 5 : 4, presence: 2 });
+    const look: Record<string, { key: string; gain: number; echo: number; low: number; thump: number; thumpFreq: number; pitch?: number }> = {
+      pistol: { key: 'pistol', gain: 1.0, echo: 0.28, low: 4, thump: 0.4, thumpFreq: 120 },
+      shotgun: { key: 'pump', gain: 1.1, echo: 0.35, low: 5, thump: 0.55, thumpFreq: 90 },
+      autoShotgun: { key: 'drum', gain: 1.1, echo: 0.35, low: 5, thump: 0.55, thumpFreq: 90 },
+      smg: { key: 'smg', gain: 0.75, echo: 0.12, low: 3, thump: 0.25, thumpFreq: 130 },
+      rifle: { key: 'rifle', gain: 1.15, echo: 0.45, low: 5, thump: 0.6, thumpFreq: 80 },
+      magnum: { key: 'magnum', gain: 1.2, echo: 0.45, low: 6, thump: 0.7, thumpFreq: 75, pitch: 0.92 },
+    };
+    const l = look[kind];
+    if (!l) return false;
+    const played = this.playSample(l.key, { gain: l.gain, echo: l.echo, lowBoost: l.low, presence: 2, pitch: l.pitch });
     if (!played) return false;
     const out = this.output(null, this.fxBus, 0);
-    this.tone(out, shotgun ? 0.2 : 0.12, { freq: shotgun ? 90 : 120, freqEnd: 38, gain: shotgun ? 0.55 : 0.4, attack: 0.001 });
+    this.tone(out, l.thump > 0.5 ? 0.22 : 0.12, { freq: l.thumpFreq, freqEnd: 36, gain: l.thump, attack: 0.001 });
     return true;
+  }
+
+  /** Generated big-calibre crack and boom (rifle and revolver, "Old generated sound"). */
+  private heavyShot(): void {
+    const out = this.output(null, this.fxBus, 0.8);
+    this.burst(out, 0.06, { filter: 'bandpass', freq: 2600, q: 0.6, gain: 1.0, attack: 0.0005 });
+    this.burst(out, 0.45, { filter: 'lowpass', freq: 1800, freqEnd: 160, gain: 1.0, attack: 0.001 });
+    this.tone(out, 0.3, { freq: 120, freqEnd: 30, gain: 1.0, attack: 0.001 });
+    this.burst(out, 0.7, { filter: 'lowpass', freq: 500, freqEnd: 150, gain: 0.2, delay: 0.22, attack: 0.04 });
+  }
+
+  /** The rocket leaving the tube: a thump and a roaring whoosh. */
+  private rocketLaunch(): void {
+    const out = this.output(null, this.fxBus, 0.5);
+    this.tone(out, 0.25, { freq: 90, freqEnd: 40, gain: 0.9, attack: 0.002 });
+    this.burst(out, 0.12, { filter: 'lowpass', freq: 1200, gain: 0.9, attack: 0.001 });
+    this.burst(out, 0.9, { filter: 'bandpass', freq: 900, freqEnd: 2400, q: 0.8, gain: 0.55, attack: 0.03 });
+    this.burst(out, 1.2, { filter: 'lowpass', freq: 700, freqEnd: 300, gain: 0.35, attack: 0.05, delay: 0.05 });
+  }
+
+  /** A rocket or barrel blowing up. Further away is quieter and duller. */
+  explosion(pos: Vector3, big = true): void {
+    if (!this.ready) return;
+    const played = this.playSample(big ? 'explosion' : 'explosionSmall', { gain: big ? 1.3 : 1.1, pos, echo: 0.6, lowBoost: 6 });
+    const out = this.output(pos, this.fxBus, 0.7);
+    // A deep generated thump under the recording (or instead of it).
+    this.tone(out, 0.6, { freq: 70, freqEnd: 24, gain: played ? 0.9 : 1.2, attack: 0.003 });
+    if (!played) {
+      this.burst(out, 1.6, { filter: 'lowpass', freq: 1600, freqEnd: 120, gain: 1.2, attack: 0.002 });
+      this.burst(out, 0.1, { filter: 'bandpass', freq: 1800, q: 0.5, gain: 0.9 });
+    }
+    // Debris pattering down afterwards.
+    this.burst(out, 0.9, { filter: 'bandpass', freq: 2600, q: 0.7, gain: 0.12, delay: 0.5, attack: 0.1 });
   }
 
   /** A deep, rolling shotgun boom. `heavy` = pump gun (bigger and longer). */
@@ -387,9 +447,9 @@ export class Sfx implements ZombieVoice {
     this.burst(out, 0.6, { filter: 'lowpass', freq: 400, freqEnd: 150, gain: 0.08 * k, delay: 0.45, attack: 0.05 });
   }
 
-  gunshot(): void {
+  gunshot(volume = 1): void {
     if (!this.ready) return;
-    const out = this.output(null, this.fxBus, 0.55);
+    const out = this.output(null, this.fxBus, 0.55 * volume);
     this.burst(out, 0.07, { filter: 'bandpass', freq: 3200, q: 0.7, gain: 0.9, attack: 0.0005 });
     this.burst(out, 0.24, { filter: 'lowpass', freq: 1400, freqEnd: 260, gain: 0.9, attack: 0.001 });
     this.tone(out, 0.17, { freq: 160, freqEnd: 42, gain: 0.95, attack: 0.001 });
@@ -448,7 +508,116 @@ export class Sfx implements ZombieVoice {
         this.burst(out, 0.05, { filter: 'bandpass', freq: 2000, q: 3, gain: 0.55 });
         this.burst(out, 0.06, { filter: 'bandpass', freq: 1600, q: 3, gain: 0.6, delay: 0.11 });
         break;
+      case 'cylinderOut':
+        // Cylinder swings out and six empty cases rattle out.
+        this.burst(out, 0.04, { filter: 'bandpass', freq: 2400, q: 3, gain: 0.45 });
+        for (let i = 0; i < 6; i++) this.tone(out, 0.05, { freq: 3800 + Math.random() * 1500, gain: 0.04, delay: 0.12 + i * 0.03 + Math.random() * 0.02 });
+        break;
+      case 'cylinderIn':
+        this.burst(out, 0.04, { filter: 'bandpass', freq: 1800, q: 2, gain: 0.4 });
+        this.burst(out, 0.05, { filter: 'bandpass', freq: 2600, q: 3, gain: 0.55, delay: 0.18 });
+        break;
+      case 'roundIn':
+        this.burst(out, 0.04, { filter: 'bandpass', freq: 1500, q: 2, gain: 0.35 });
+        this.burst(out, 0.015, { filter: 'bandpass', freq: 3800, q: 4, gain: 0.3, delay: 0.035 });
+        break;
+      case 'rocketIn':
+        this.burst(out, 0.12, { filter: 'lowpass', freq: 700, gain: 0.5 });
+        this.burst(out, 0.04, { filter: 'bandpass', freq: 2000, q: 2, gain: 0.45, delay: 0.1 });
+        this.tone(out, 0.1, { freq: 300, freqEnd: 180, gain: 0.15, delay: 0.1 });
+        break;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Melee, knife and gore
+
+  /** A heavy boot landing. */
+  kick(pos: Vector3): void {
+    if (!this.ready) return;
+    const out = this.output(pos, this.fxBus, 0.2);
+    this.burst(out, 0.12, { filter: 'lowpass', freq: 500, gain: 1.0, attack: 0.001 });
+    this.tone(out, 0.16, { freq: 105, freqEnd: 45, gain: 0.9, attack: 0.001 });
+    this.burst(out, 0.03, { filter: 'bandpass', freq: 2200, q: 1.5, gain: 0.4 });
+  }
+
+  /** A body slammed into the ground head first. */
+  slam(pos: Vector3): void {
+    if (!this.ready) return;
+    const out = this.output(pos, this.fxBus, 0.35);
+    this.burst(out, 0.35, { filter: 'lowpass', freq: 380, gain: 1.1, attack: 0.002 });
+    this.tone(out, 0.3, { freq: 80, freqEnd: 32, gain: 1.0, attack: 0.002 });
+    this.burst(out, 0.06, { filter: 'bandpass', freq: 1600, q: 1.2, gain: 0.5 });
+    this.burst(out, 0.04, { filter: 'highpass', freq: 3000, gain: 0.25, delay: 0.01 });
+  }
+
+  /** The knife cutting through the air. */
+  knifeSwish(): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, 0.04);
+    this.burst(out, 0.16, { filter: 'bandpass', freq: 1800, freqEnd: 5200, q: 2.5, gain: 0.35, attack: 0.04 });
+  }
+
+  /** The blade going in. */
+  knifeHit(pos: Vector3, stab = false): void {
+    if (!this.ready) return;
+    const out = this.output(pos, this.fxBus, 0.12);
+    if (!this.playSample('splat', { gain: stab ? 0.7 : 0.45, pos, echo: 0.05, pitch: 1.3, lowpass: 5000 })) {
+      this.burst(out, 0.1, { filter: 'bandpass', freq: 900, q: 1.2, gain: 0.6 });
+    }
+    this.burst(out, 0.03, { filter: 'bandpass', freq: 3200, q: 2, gain: 0.35 });
+    if (stab) this.tone(out, 0.12, { freq: 160, freqEnd: 70, gain: 0.5 });
+  }
+
+  /** Steel meeting a zombie's swing: a clang (a bright ring for a perfect parry). */
+  parry(perfect: boolean): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, 0.25);
+    this.burst(out, 0.03, { filter: 'highpass', freq: 3500, gain: 0.6 });
+    this.tone(out, perfect ? 0.7 : 0.3, { freq: perfect ? 2100 : 1500, gain: perfect ? 0.3 : 0.2 });
+    this.tone(out, perfect ? 0.6 : 0.25, { freq: perfect ? 3170 : 2240, gain: 0.12 });
+    this.burst(out, 0.08, { filter: 'lowpass', freq: 600, gain: 0.5 });
+    if (perfect) this.tone(out, 0.9, { freq: 4200, gain: 0.08, delay: 0.02 });
+  }
+
+  /** A head bursting: a crack of bone and a wet splatter. */
+  headBurst(pos: Vector3): void {
+    if (!this.ready) return;
+    const out = this.output(pos, this.fxBus, 0.2);
+    this.burst(out, 0.03, { filter: 'bandpass', freq: 2800, q: 1, gain: 1.0, attack: 0.0005 });
+    this.burst(out, 0.05, { filter: 'highpass', freq: 1800, gain: 0.6, delay: 0.005 });
+    this.tone(out, 0.1, { freq: 300, freqEnd: 90, gain: 0.6 });
+    if (!this.playSample('splat', { gain: 1.0, pos, echo: 0.1, lowBoost: 3 })) {
+      this.burst(out, 0.3, { filter: 'bandpass', freq: 800, freqEnd: 250, q: 1.5, gain: 0.7, delay: 0.02 });
+    }
+  }
+
+  /** An arm or leg torn off. */
+  limbTear(pos: Vector3): void {
+    if (!this.ready) return;
+    const out = this.output(pos, this.fxBus, 0.15);
+    this.burst(out, 0.04, { filter: 'bandpass', freq: 2000, q: 1.2, gain: 0.7 });
+    this.tone(out, 0.08, { freq: 220, freqEnd: 80, gain: 0.45 });
+    if (!this.playSample('splat', { gain: 0.8, pos, echo: 0.08, pitch: 0.85 })) {
+      this.burst(out, 0.22, { filter: 'bandpass', freq: 700, freqEnd: 300, q: 1.5, gain: 0.55 });
+    }
+  }
+
+  /** Grunting and scuffling while you fight free of a grab. */
+  struggle(): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, 0.05);
+    this.burst(out, 0.08, { filter: 'lowpass', freq: 600, gain: 0.35 });
+    this.voice(out, 0.18, { f0: 140, f0End: 120, f1: [650, 550], f2: [1150, 1000], gain: 0.25, attack: 0.01, rasp: 0.2 });
+  }
+
+  /** The zombie's teeth sinking in. */
+  bite(pos: Vector3): void {
+    if (!this.ready) return;
+    const out = this.output(pos, this.fxBus, 0.15);
+    this.burst(out, 0.05, { filter: 'bandpass', freq: 2400, q: 1.2, gain: 0.8 });
+    this.playSample('splat', { gain: 0.8, pos, echo: 0.05, pitch: 1.15 });
+    this.voice(out, 0.5, { f0: 150, f0End: 110, f1: [700, 600], f2: [1300, 1100], gain: 0.55, attack: 0.01, rasp: 0.3 });
   }
 
   shellLand(pos: Vector3, kind: 'brass' | 'hull' = 'brass'): void {

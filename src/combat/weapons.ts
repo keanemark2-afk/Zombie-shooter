@@ -3,10 +3,26 @@ import { tuning } from '../config/tuning';
 // The guns you carry, and the bookkeeping for each one: ammo, firing rate,
 // pumping and reloading. Kept free of graphics so it can be unit-tested.
 
-export type WeaponId = 'pistol' | 'pump' | 'drum';
+export type WeaponId = 'pistol' | 'pump' | 'drum' | 'smg' | 'rifle' | 'magnum' | 'rocket';
 
 /** Every gun's numbers have this shape (see the sections in tuning.ts). */
 export type WeaponStats = typeof tuning.pistol;
+
+/** Sounds and moments a gun produces while it works. */
+export type GunEvent =
+  | 'magOut'
+  | 'magIn'
+  | 'slide'
+  | 'pump'
+  | 'shellIn'
+  | 'drumOut'
+  | 'drumIn'
+  | 'bolt'
+  | 'eject'
+  | 'cylinderOut'
+  | 'cylinderIn'
+  | 'roundIn'
+  | 'rocketIn';
 
 export interface WeaponDef {
   id: WeaponId;
@@ -16,28 +32,60 @@ export interface WeaponDef {
   slot: number;
   /** Live numbers from tuning.ts, so F1 changes apply straight away. */
   stats: () => WeaponStats;
-  /** Pistol = held in the hands; long = shouldered rifle-style gun. */
+  /** Pistol = held in the hands; long = shouldered rifle-style gun (the rocket tube rests on the shoulder). */
   hold: 'pistol' | 'long';
   /** Magazine = all at once; shells = one at a time, can be interrupted by firing. */
   reload: 'magazine' | 'shells';
-  /** Needs the pump worked after every shot. */
-  pump: boolean;
-  /** What kind of casing flies out. */
-  casing: 'brass' | 'hull';
+  /** Worked by hand after every shot: a pump or a bolt (or nothing). */
+  cycle: 'none' | 'pump' | 'bolt';
+  /** Keeps firing while the trigger is held. */
+  auto: boolean;
+  /** Reload sounds: taking the old ammo out, putting new in, and racking when empty. */
+  reloadEvents: [GunEvent | null, GunEvent | null, GunEvent | null];
+  /** One at a time: the sound of each shell or round going in. */
+  loadEvent: GunEvent;
+  /** What kind of casing flies out (none for the revolver and rocket). */
+  casing: 'brass' | 'hull' | 'none';
   /** Which gunshot sound to play. */
-  sound: 'pistol' | 'shotgun' | 'autoShotgun';
+  sound: 'pistol' | 'shotgun' | 'autoShotgun' | 'smg' | 'rifle' | 'magnum' | 'rocket';
+  /** Looking through a scope while aiming. */
+  scope: boolean;
+  /** Fires a rocket instead of bullets. */
+  projectile: boolean;
 }
 
 export const WEAPONS: readonly WeaponDef[] = [
-  { id: 'pistol', name: 'KESTREL 9', slot: 1, stats: () => tuning.pistol, hold: 'pistol', reload: 'magazine', pump: false, casing: 'brass', sound: 'pistol' },
-  { id: 'pump', name: 'BRAMBLE 12', slot: 2, stats: () => tuning.pumpShotgun, hold: 'long', reload: 'shells', pump: true, casing: 'hull', sound: 'shotgun' },
-  { id: 'drum', name: 'THRESHER', slot: 3, stats: () => tuning.drumShotgun, hold: 'long', reload: 'magazine', pump: false, casing: 'hull', sound: 'autoShotgun' },
+  {
+    id: 'pistol', name: 'KESTREL 9', slot: 1, stats: () => tuning.pistol, hold: 'pistol', reload: 'magazine', cycle: 'none', auto: false,
+    reloadEvents: ['magOut', 'magIn', 'slide'], loadEvent: 'shellIn', casing: 'brass', sound: 'pistol', scope: false, projectile: false,
+  },
+  {
+    id: 'pump', name: 'BRAMBLE 12', slot: 2, stats: () => tuning.pumpShotgun, hold: 'long', reload: 'shells', cycle: 'pump', auto: false,
+    reloadEvents: [null, null, 'pump'], loadEvent: 'shellIn', casing: 'hull', sound: 'shotgun', scope: false, projectile: false,
+  },
+  {
+    id: 'drum', name: 'THRESHER', slot: 3, stats: () => tuning.drumShotgun, hold: 'long', reload: 'magazine', cycle: 'none', auto: false,
+    reloadEvents: ['drumOut', 'drumIn', 'bolt'], loadEvent: 'shellIn', casing: 'hull', sound: 'autoShotgun', scope: false, projectile: false,
+  },
+  {
+    id: 'smg', name: 'MAGPIE', slot: 4, stats: () => tuning.smg, hold: 'long', reload: 'magazine', cycle: 'none', auto: true,
+    reloadEvents: ['magOut', 'magIn', 'bolt'], loadEvent: 'shellIn', casing: 'brass', sound: 'smg', scope: false, projectile: false,
+  },
+  {
+    id: 'rifle', name: 'HERON', slot: 5, stats: () => tuning.rifle, hold: 'long', reload: 'shells', cycle: 'bolt', auto: false,
+    reloadEvents: [null, null, 'bolt'], loadEvent: 'roundIn', casing: 'brass', sound: 'rifle', scope: true, projectile: false,
+  },
+  {
+    id: 'magnum', name: 'OXBOW', slot: 6, stats: () => tuning.magnum, hold: 'pistol', reload: 'magazine', cycle: 'none', auto: false,
+    reloadEvents: ['cylinderOut', 'cylinderIn', null], loadEvent: 'shellIn', casing: 'none', sound: 'magnum', scope: false, projectile: false,
+  },
+  {
+    id: 'rocket', name: 'HAYMAKER', slot: 7, stats: () => tuning.rocket, hold: 'long', reload: 'magazine', cycle: 'none', auto: false,
+    reloadEvents: [null, 'rocketIn', null], loadEvent: 'rocketIn', casing: 'none', sound: 'rocket', scope: false, projectile: true,
+  },
 ];
 
-/** Sounds and moments a gun produces while it works. */
-export type GunEvent = 'magOut' | 'magIn' | 'slide' | 'pump' | 'shellIn' | 'drumOut' | 'drumIn' | 'bolt' | 'eject';
-
-/** Fraction of the fire interval at which the pump is worked. */
+/** Fraction of the fire interval at which the pump or bolt is worked. */
 const PUMP_AT = 0.25;
 /** Time to bring the gun up before shell-by-shell loading starts. */
 const SHELL_START = 0.25;
@@ -54,7 +102,7 @@ export class Gun {
   reloadTotal = 1;
   /** 0..1 position of the pump / slide / bolt (1 = pulled back). */
   action = 0;
-  private pumpPending = false;
+  private cyclePending = false;
   private sinceShot = 999;
   private reloadSteps = 0;
   private emptyReload = false;
@@ -79,9 +127,9 @@ export class Gun {
     return Math.min(1, this.reloadTime / Math.max(0.001, this.reloadTotal));
   }
 
-  /** Busy pumping between shots (pump guns). */
+  /** Busy working the pump or bolt between shots. */
   get pumping(): boolean {
-    return this.pumpPending || (this.def.pump && this.cooldown > 0 && this.sinceShot < this.stats.fireInterval);
+    return this.cyclePending || (this.def.cycle !== 'none' && this.cooldown > 0 && this.sinceShot < this.stats.fireInterval);
   }
 
   reset(): void {
@@ -90,7 +138,7 @@ export class Gun {
     this.cooldown = 0;
     this.reloading = false;
     this.action = 0;
-    this.pumpPending = false;
+    this.cyclePending = false;
   }
 
   canReload(infinite: boolean): boolean {
@@ -133,7 +181,7 @@ export class Gun {
     this.ammo--;
     this.cooldown = this.stats.fireInterval;
     this.sinceShot = 0;
-    if (this.def.pump) this.pumpPending = this.ammo > 0;
+    if (this.def.cycle !== 'none') this.cyclePending = this.ammo > 0;
     else this.action = 1;
     return 'fired';
   }
@@ -144,13 +192,13 @@ export class Gun {
     this.sinceShot += dt;
     const s = this.stats;
 
-    // Pump guns work the pump a moment after each shot.
-    if (this.def.pump) {
+    // Pump and bolt guns are worked by hand a moment after each shot.
+    if (this.def.cycle !== 'none') {
       const pumpStart = s.fireInterval * PUMP_AT;
       const pumpEnd = s.fireInterval * 0.85;
-      if (this.pumpPending && this.sinceShot >= pumpStart) {
-        this.pumpPending = false;
-        emit('pump');
+      if (this.cyclePending && this.sinceShot >= pumpStart) {
+        this.cyclePending = false;
+        emit(this.def.cycle);
         emit('eject');
       }
       if (this.sinceShot >= pumpStart && this.sinceShot <= pumpEnd && this.sinceShot < s.fireInterval) {
@@ -178,18 +226,18 @@ export class Gun {
 
   private tickMagazine(infinite: boolean, emit: (e: GunEvent) => void): void {
     const u = this.reloadTime / this.reloadTotal;
-    const drum = this.def.id === 'drum';
+    const [out, into, rack] = this.def.reloadEvents;
     if (this.reloadSteps === 0 && u > 0.15) {
       this.reloadSteps = 1;
-      emit(drum ? 'drumOut' : 'magOut');
+      if (out) emit(out);
     }
     if (this.reloadSteps === 1 && u > 0.6) {
       this.reloadSteps = 2;
-      emit(drum ? 'drumIn' : 'magIn');
+      if (into) emit(into);
     }
     if (this.reloadSteps === 2 && this.emptyReload && u > 0.85) {
       this.reloadSteps = 3;
-      emit(drum ? 'bolt' : 'slide');
+      if (rack) emit(rack);
       this.action = 0;
     }
     if (this.reloadTime >= this.reloadTotal) {
@@ -213,7 +261,7 @@ export class Gun {
       // A shell just went in.
       if (this.take(1, infinite) === 1) {
         this.ammo++;
-        emit('shellIn');
+        emit(this.def.loadEvent);
       }
     }
     this.shellPhase = 'load';
@@ -221,10 +269,10 @@ export class Gun {
     const outOfShells = !infinite && this.reserve <= 0;
     if (full || outOfShells) {
       if (this.emptyReload && this.ammo > 0 && this.stats.emptyReloadTime > 0) {
-        // Was empty: pump the first shell into the chamber.
+        // Was empty: pump (or bolt) the first shell into the chamber.
         this.shellPhase = 'chamber';
         this.reloadTotal = this.stats.emptyReloadTime;
-        emit('pump');
+        emit(this.def.cycle === 'bolt' ? 'bolt' : 'pump');
       } else {
         this.reloading = false;
       }

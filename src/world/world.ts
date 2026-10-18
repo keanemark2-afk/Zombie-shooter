@@ -44,6 +44,8 @@ export class World {
   readonly levels: Record<LevelId, Level>;
   level: Level;
   private targets: Object3D[] = [];
+  /** Things that no longer stop bullets (barrels that have blown up). */
+  readonly disabled = new Set<Object3D>();
   private readonly terrainTargets: Object3D[] = [];
   private readonly raycaster = new Raycaster();
 
@@ -69,6 +71,7 @@ export class World {
   }
 
   setLevel(id: LevelId): void {
+    this.disabled.clear();
     for (const level of Object.values(this.levels)) level.root.visible = level.id === id;
     this.level = this.levels[id];
     const levelTargets: Object3D[] = [];
@@ -97,6 +100,7 @@ export class World {
     this.raycaster.near = 0;
     let best: Intersection | null = null;
     for (const target of this.targets) {
+      if (this.disabled.has(target)) continue;
       const hits = this.raycaster.intersectObject(target, false);
       if (hits.length && (!best || hits[0].distance < best.distance)) best = hits[0];
     }

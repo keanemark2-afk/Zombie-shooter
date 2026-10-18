@@ -55,13 +55,15 @@ export const tuning = {
     lookUpLimit: 55, // How far up you can look. [10 to 89]
     wallPadding: 0.2, // How far the camera keeps from walls so they never block the view. [0 to 0.6]
     wallEaseOut: 6, // How smoothly the camera slides back out after a wall stops pushing it in. Higher = quicker. [1 to 30]
+    scopeFov: 16, // Field of view through the rifle scope. Smaller = more zoom. [4 to 40]
+    scopeSensitivity: 0.35, // Turning speed through the scope, compared with normal. [0.05 to 1.5]
   },
 
   // Shared weapon settings.
   weapons: {
     infiniteAmmo: true, // Spare ammo never runs out (handy for testing).
     switchTime: 0.45, // How long swapping to another weapon takes. [0.1 to 2]
-    startWeapon: 'pistol', // The weapon in your hands when a round starts. [options: pistol, pump, drum]
+    startWeapon: 'pistol', // The weapon in your hands when a round starts. [options: pistol, pump, drum, smg, rifle, magnum, rocket]
   },
 
   // The starter pistol ("Kestrel 9"). Weapon slot 1.
@@ -93,6 +95,9 @@ export const tuning = {
     blastPush: 0, // How hard the close-range blast shoves (1.6+ knocks a zombie down). [0 to 8]
     maxRange: 120, // How far bullets travel. [10 to 400]
     spareAmmo: 60, // Spare bullets you carry when infinite ammo is off. [0 to 500]
+    headPop: 0, // Chance a bullet or pellet that hits the head bursts it, at close range (less further away). [0 to 1]
+    critChance: 0.05, // Chance any headshot is a critical that bursts the head, with a fully tight reticle (half that when wide). [0 to 1]
+    dismember: 0, // Chance a bullet or pellet that hits an arm or leg tears it off, at close range. [0 to 1]
   },
 
   // Pump-action shotgun ("Bramble 12"). Weapon slot 2. Loads one shell at a time.
@@ -124,6 +129,9 @@ export const tuning = {
     blastPush: 2.8, // How hard the close-range blast shoves (1.6+ knocks a zombie down). [0 to 8]
     maxRange: 60, // How far pellets travel. [5 to 200]
     spareAmmo: 24, // Spare shells you carry when infinite ammo is off. [0 to 200]
+    headPop: 0.85, // Chance a bullet or pellet that hits the head bursts it, at close range (less further away). [0 to 1]
+    critChance: 0.05, // Chance any headshot is a critical that bursts the head, with a fully tight reticle (half that when wide). [0 to 1]
+    dismember: 0.3, // Chance a bullet or pellet that hits an arm or leg tears it off, at close range. [0 to 1]
   },
 
   // Semi-automatic drum shotgun ("Thresher"). Weapon slot 3. Fires as fast as you pull the trigger.
@@ -155,6 +163,160 @@ export const tuning = {
     blastPush: 2.2, // How hard the close-range blast shoves (1.6+ knocks a zombie down). [0 to 8]
     maxRange: 50, // How far pellets travel. [5 to 200]
     spareAmmo: 36, // Spare shells you carry when infinite ammo is off. [0 to 200]
+    headPop: 0.6, // Chance a bullet or pellet that hits the head bursts it, at close range (less further away). [0 to 1]
+    critChance: 0.04, // Chance any headshot is a critical that bursts the head, with a fully tight reticle (half that when wide). [0 to 1]
+    dismember: 0.22, // Chance a bullet or pellet that hits an arm or leg tears it off, at close range. [0 to 1]
+  },
+
+  // Submachine gun ("Magpie"). Weapon slot 4. Keeps firing while you hold the trigger.
+  smg: {
+    damage: 55, // Firepower: damage per bullet before body-part multipliers. [5 to 500]
+    pellets: 1, // Bullets fired per shot. [1 to 20]
+    pelletSpread: 0, // How wide extra pellets scatter, in degrees (0 for a single bullet). [0 to 20]
+    falloffStart: 15, // Distance where damage starts to drop off. [1 to 200]
+    falloffEnd: 45, // Distance where damage reaches its lowest. [1 to 400]
+    falloffMin: 0.6, // Fraction of damage left at long range. [0 to 1]
+    fireInterval: 0.075, // Fire rate: time between bullets while the trigger is held. [0.03 to 0.5]
+    capacity: 40, // Bullets per magazine. [1 to 120]
+    reloadTime: 1.6, // Reload speed with bullets still in the gun. [0.2 to 5]
+    emptyReloadTime: 2, // Reload speed when completely empty (bolt has to be pulled). [0.2 to 6]
+    focusTime: 0.9, // How long the reticle takes to tighten fully while you hold still. [0.05 to 3]
+    spreadWide: 4.2, // Reticle size when you first raise the gun, in degrees. [0.2 to 12]
+    spreadTight: 0.9, // Reticle size when fully focused (it never gets very tight). [0 to 4]
+    spreadMoving: 2, // Smallest reticle size while walking and aiming. [0 to 8]
+    fireBloom: 0.55, // How much each bullet widens the reticle. [0 to 6]
+    turnBloom: 0.03, // How much the reticle widens per degree you swing the camera. [0 to 0.3]
+    swaySpeed: 2.2, // How fast the laser dot wanders inside the reticle. [0.1 to 6]
+    recoilKick: 0.7, // How far each bullet kicks your aim upwards, in degrees. [0 to 8]
+    recoilSideways: 0.5, // Random sideways recoil per bullet, in degrees. [0 to 4]
+    recoilRecovery: 12, // How quickly your aim settles back after recoil. Higher = faster. [1 to 30]
+    knockback: 0.08, // How hard each bullet shoves a zombie. [0 to 2]
+    pierce: 0, // How many extra zombies one bullet can pass through. [0 to 5]
+    blastRange: 0, // Close-range blast reach (0 = none). [0 to 6]
+    blastAngle: 0, // How wide the close-range blast is, in degrees either side of your aim. [0 to 60]
+    blastPush: 0, // How hard the close-range blast shoves. [0 to 8]
+    maxRange: 90, // How far bullets travel. [10 to 400]
+    spareAmmo: 200, // Spare bullets you carry when infinite ammo is off. [0 to 1000]
+    headPop: 0, // Chance a bullet that hits the head bursts it, at close range. [0 to 1]
+    critChance: 0.01, // Chance any headshot is a critical that bursts the head, with a fully tight reticle. [0 to 1]
+    dismember: 0, // Chance a bullet that hits an arm or leg tears it off, at close range. [0 to 1]
+  },
+
+  // Bolt-action rifle with a scope ("Heron"). Weapon slot 5. Aim to look through the scope.
+  rifle: {
+    damage: 520, // Firepower: damage per bullet before body-part multipliers. [50 to 5000]
+    pellets: 1, // Bullets fired per shot. [1 to 20]
+    pelletSpread: 0, // How wide extra pellets scatter, in degrees (0 for a single bullet). [0 to 20]
+    falloffStart: 300, // Distance where damage starts to drop off. [1 to 400]
+    falloffEnd: 300, // Distance where damage reaches its lowest. [1 to 400]
+    falloffMin: 1, // Fraction of damage left at long range (1 = no drop-off). [0 to 1]
+    fireInterval: 1.25, // Time between shots, including working the bolt. [0.3 to 4]
+    capacity: 5, // Rounds the rifle holds. [1 to 20]
+    reloadTime: 0.55, // Time to push in one round. Loads round by round; fire to stop early. [0.1 to 2]
+    emptyReloadTime: 0.5, // Extra time to work the bolt when reloading from empty. [0 to 2]
+    focusTime: 1, // How long the scope takes to steady fully while you hold still. [0.05 to 4]
+    spreadWide: 1.4, // Scope drift when you first look through it, in degrees. [0 to 8]
+    spreadTight: 0, // Scope drift when fully steady. [0 to 3]
+    spreadMoving: 1.1, // Smallest drift while walking and aiming. [0 to 6]
+    fireBloom: 1.2, // How much each shot unsteadies the scope. [0 to 6]
+    turnBloom: 0.015, // How much the scope drifts per degree you swing the view. [0 to 0.3]
+    swaySpeed: 0.8, // How fast the scope crosshair wanders. [0.1 to 6]
+    recoilKick: 4, // How far each shot kicks your aim upwards, in degrees. [0 to 15]
+    recoilSideways: 0.6, // Random sideways recoil per shot, in degrees. [0 to 6]
+    recoilRecovery: 5, // How quickly your aim settles back after recoil. Higher = faster. [1 to 30]
+    knockback: 0.6, // How hard each bullet shoves a zombie. [0 to 3]
+    pierce: 2, // How many extra zombies one bullet can pass through. [0 to 5]
+    blastRange: 0, // Close-range blast reach (0 = none). [0 to 6]
+    blastAngle: 0, // How wide the close-range blast is, in degrees either side of your aim. [0 to 60]
+    blastPush: 0, // How hard the close-range blast shoves. [0 to 8]
+    maxRange: 250, // How far bullets travel. [10 to 400]
+    spareAmmo: 30, // Spare rounds you carry when infinite ammo is off. [0 to 200]
+    headPop: 1, // Chance a bullet that hits the head bursts it. [0 to 1]
+    critChance: 0.1, // Chance any headshot is a critical, with a fully steady scope. [0 to 1]
+    dismember: 0.85, // Chance a bullet that hits an arm or leg tears it off. [0 to 1]
+  },
+
+  // Big revolver ("Oxbow"). Weapon slot 6. Huge damage, punches through zombies.
+  magnum: {
+    damage: 700, // Firepower: damage per bullet before body-part multipliers. [50 to 5000]
+    pellets: 1, // Bullets fired per shot. [1 to 20]
+    pelletSpread: 0, // How wide extra pellets scatter, in degrees (0 for a single bullet). [0 to 20]
+    falloffStart: 200, // Distance where damage starts to drop off. [1 to 400]
+    falloffEnd: 200, // Distance where damage reaches its lowest. [1 to 400]
+    falloffMin: 1, // Fraction of damage left at long range (1 = no drop-off). [0 to 1]
+    fireInterval: 0.7, // Fire rate: minimum time between shots. [0.2 to 3]
+    capacity: 6, // Rounds in the cylinder. [1 to 12]
+    reloadTime: 2.4, // Time to swing out the cylinder and load all six. [0.3 to 6]
+    emptyReloadTime: 2.4, // The same when completely empty. [0.3 to 6]
+    focusTime: 0.8, // How long the reticle takes to tighten fully while you hold still. [0.05 to 3]
+    spreadWide: 3.4, // Reticle size when you first raise the gun, in degrees. [0.2 to 12]
+    spreadTight: 0.3, // Reticle size when fully focused. [0 to 4]
+    spreadMoving: 1.8, // Smallest reticle size while walking and aiming. [0 to 8]
+    fireBloom: 4, // How much each shot widens the reticle. [0 to 8]
+    turnBloom: 0.03, // How much the reticle widens per degree you swing the camera. [0 to 0.3]
+    swaySpeed: 1.6, // How fast the laser dot wanders inside the reticle. [0.1 to 6]
+    recoilKick: 7, // How far each shot kicks your aim upwards, in degrees. [0 to 15]
+    recoilSideways: 1.5, // Random sideways recoil per shot, in degrees. [0 to 6]
+    recoilRecovery: 5, // How quickly your aim settles back after recoil. Higher = faster. [1 to 30]
+    knockback: 1.1, // How hard each bullet shoves a zombie (1.6+ knocks one down). [0 to 4]
+    pierce: 3, // How many extra zombies one bullet can pass through. [0 to 5]
+    blastRange: 0, // Close-range blast reach (0 = none). [0 to 6]
+    blastAngle: 0, // How wide the close-range blast is, in degrees either side of your aim. [0 to 60]
+    blastPush: 0, // How hard the close-range blast shoves. [0 to 8]
+    maxRange: 150, // How far bullets travel. [10 to 400]
+    spareAmmo: 18, // Spare rounds you carry when infinite ammo is off. [0 to 200]
+    headPop: 1, // Chance a bullet that hits the head bursts it. [0 to 1]
+    critChance: 0.1, // Chance any headshot is a critical, with a fully tight reticle. [0 to 1]
+    dismember: 0.9, // Chance a bullet that hits an arm or leg tears it off. [0 to 1]
+  },
+
+  // Rocket launcher ("Haymaker"). Weapon slot 7. One rocket, one enormous blast (see Explosion).
+  rocket: {
+    damage: 1500, // Extra damage to a zombie hit directly by the rocket. [0 to 10000]
+    pellets: 1, // Rockets fired per shot (keep at 1). [1 to 2]
+    pelletSpread: 0, // Not used by the rocket launcher. [0 to 20]
+    falloffStart: 300, // Not used by the rocket launcher. [1 to 400]
+    falloffEnd: 300, // Not used by the rocket launcher. [1 to 400]
+    falloffMin: 1, // Not used by the rocket launcher. [0 to 1]
+    fireInterval: 1, // Minimum time between rockets. [0.2 to 5]
+    capacity: 1, // Rockets loaded at once. [1 to 6]
+    reloadTime: 2.6, // Time to load a new rocket. [0.3 to 8]
+    emptyReloadTime: 2.6, // The same (the tube is always empty after a shot). [0.3 to 8]
+    focusTime: 0.9, // How long the reticle takes to tighten fully while you hold still. [0.05 to 3]
+    spreadWide: 2.5, // Reticle size when you first raise it, in degrees. [0.2 to 12]
+    spreadTight: 0.3, // Reticle size when fully focused. [0 to 4]
+    spreadMoving: 1.6, // Smallest reticle size while walking and aiming. [0 to 8]
+    fireBloom: 2, // How much a shot widens the reticle. [0 to 8]
+    turnBloom: 0.03, // How much the reticle widens per degree you swing the camera. [0 to 0.3]
+    swaySpeed: 1.2, // How fast the laser dot wanders inside the reticle. [0.1 to 6]
+    recoilKick: 3, // How far a launch kicks your aim upwards, in degrees. [0 to 15]
+    recoilSideways: 1, // Random sideways kick per launch, in degrees. [0 to 6]
+    recoilRecovery: 4, // How quickly your aim settles back. Higher = faster. [1 to 30]
+    knockback: 0, // Not used (the blast does the shoving). [0 to 3]
+    pierce: 0, // Not used by the rocket launcher. [0 to 5]
+    blastRange: 0, // Not used by the rocket launcher. [0 to 6]
+    blastAngle: 0, // Not used by the rocket launcher. [0 to 60]
+    blastPush: 0, // Not used by the rocket launcher. [0 to 8]
+    maxRange: 200, // How far a rocket flies before it blows up by itself. [10 to 400]
+    spareAmmo: 6, // Spare rockets you carry when infinite ammo is off. [0 to 50]
+    headPop: 1, // Not used (the blast decides). [0 to 1]
+    critChance: 0, // Not used by the rocket launcher. [0 to 1]
+    dismember: 1, // Not used (the blast decides). [0 to 1]
+  },
+
+  // Rocket and red-barrel explosions.
+  explosion: {
+    radius: 6, // How far a blast reaches, in metres. [1 to 15]
+    damage: 1800, // Damage at the centre of a blast; fades to nothing at the edge. [0 to 10000]
+    gibRadius: 1.8, // Zombies this close to the centre are blown to pieces. [0 to 6]
+    limbRadius: 4, // Zombies this close may lose arms and legs. [0 to 10]
+    push: 3.2, // How hard a blast throws zombies off their feet. [0 to 10]
+    playerPush: 2.2, // How hard a blast shoves you if you're too close (no health until Phase 3). [0 to 8]
+    shake: 0.9, // Camera shake from a nearby blast. [0 to 2]
+    hitStop: 0.07, // Tiny freeze when something blows up. [0 to 0.3]
+    rocketSpeed: 38, // How fast a rocket flies, in metres per second. [5 to 150]
+    barrels: true, // Red barrels blow up when you shoot them.
+    barrelChainDelay: 0.18, // Pause before a nearby barrel catches the blast and goes off too. [0 to 1]
   },
 
   // Damage multipliers per body part.
@@ -183,6 +345,62 @@ export const tuning = {
     knockdownTime: 2, // How long a knocked-down zombie lies on its back before getting up. [0.3 to 8]
   },
 
+  // Blood, bursting heads and torn-off limbs (the Gore choice in Settings can tone it down).
+  gore: {
+    headPopDamage: 600, // Damage to the head from one shot that always bursts it (magnum, rifle). [50 to 5000]
+    chunkLife: 14, // How long flying body pieces lie on the ground before sinking away. [1 to 60]
+    maxChunks: 60, // Most body pieces on the ground at once (the oldest vanish first). [10 to 200]
+    spurtTime: 1.4, // How long blood pumps from a neck or limb stump. [0 to 5]
+    burstSize: 1, // How big the spray is when a head bursts. [0 to 3]
+  },
+
+  // Kicks, the suplex and the knife finisher (press F / Cross when the prompt shows).
+  melee: {
+    range: 2.2, // How close you must be to a stunned zombie to get the melee prompt. [0.8 to 4]
+    promptAngle: 75, // How far off to the side of your view a zombie can be and still get the prompt, in degrees. [10 to 180]
+    invulnerable: true, // You can't be hit or grabbed while kicking, suplexing or stabbing.
+    kickDamage: 220, // Roundhouse kick damage to the zombie you kick. [0 to 3000]
+    kickRadius: 2.6, // The roundhouse also knocks down every other zombie this close to you. [0 to 6]
+    kickSplashDamage: 60, // Damage the roundhouse does to the other zombies it sweeps. [0 to 2000]
+    kickTime: 0.75, // How long the roundhouse kick takes. [0.3 to 2]
+    frontKickDamage: 160, // Front kick damage (kneeling zombie, from the front). [0 to 3000]
+    frontKickTime: 0.6, // How long the front kick takes. [0.2 to 2]
+    suplexDamage: 750, // Suplex damage (kneeling zombie, from behind). [0 to 5000]
+    suplexTime: 1.55, // How long the suplex takes. [0.6 to 4]
+    finisherDamage: 2500, // Knife stab on a zombie lying on the ground (kills a basic zombie). [0 to 10000]
+    finisherTime: 0.95, // How long the knife finisher takes. [0.3 to 3]
+    hitStop: 0.08, // Tiny freeze when a kick or slam lands. [0 to 0.3]
+    shake: 0.35, // Camera shake when a kick or slam lands. [0 to 1]
+  },
+
+  // The knife: quick slash (V / R1) and parry (press it just before a zombie's hit lands).
+  knife: {
+    damage: 70, // Slash damage. [0 to 1000]
+    range: 1.6, // How far the slash reaches. [0.5 to 3]
+    arc: 60, // How wide the slash is, in degrees either side of where you face. [10 to 180]
+    slashTime: 0.32, // How long one slash takes (and the wait before the next). [0.1 to 1]
+    parryWindow: 0.4, // Press the knife this long (or less) before a hit lands to block it. Holding the knife button also blocks. [0.05 to 1.5]
+    perfectParryWindow: 0.15, // Press within this time before the hit for a perfect parry: the zombie is stunned. [0.01 to 0.6]
+    durability: 100, // Knife condition when new. A broken knife can't parry or stab you free. [10 to 500]
+    parryCost: 10, // Knife wear from a normal parry. [0 to 100]
+    perfectParryCost: 4, // Knife wear from a perfect parry. [0 to 100]
+    finisherCost: 6, // Knife wear from a finishing stab. [0 to 100]
+    grabEscapeCost: 15, // Knife wear from stabbing your way out of a grab. [0 to 100]
+    unbreakable: false, // Tick so the knife never wears down (the Trader repairs it from Phase 5).
+    parryHitStop: 0.1, // Tiny freeze on a perfect parry. [0 to 0.4]
+  },
+
+  // Zombies grabbing you.
+  grab: {
+    chance: 0.35, // Chance a zombie with both hands free tries to grab you instead of swinging. [0 to 1]
+    mashPerPress: 0.13, // How much each press of F / Cross fills the break-free bar. [0.01 to 1]
+    wigglePerFlick: 0.06, // How much each flick of the left stick (or A/D) fills the bar. [0 to 1]
+    drain: 0.22, // How fast the bar drains if you stop mashing, per second. [0 to 2]
+    biteTime: 2.6, // How long you have to break free before it bites. [0.5 to 8]
+    cooldown: 4, // Seconds before any zombie can grab you again. [0 to 30]
+    reach: 1.0, // How close a lunging zombie must get to grab you. [0.3 to 2]
+  },
+
   // The basic zombie (the "Shambler").
   zombie: {
     health: 450, // Health points. A pistol body shot does 100. [50 to 5000]
@@ -198,6 +416,8 @@ export const tuning = {
     weaponChance: 0.45, // Chance a zombie carries a farm tool. Shoot its arm to make it drop it. [0 to 1]
     corpseTime: 6, // How long bodies stay before sinking away. [0.5 to 60]
     groanInterval: 5, // Average time between groans. [1 to 30]
+    crawlSpeed: 0.55, // Speed of a zombie dragging itself along after losing a leg. [0.1 to 3]
+    crawlReach: 1.1, // How close a crawling zombie's hands must be to claw at you. [0.3 to 2.5]
   },
 
   // The shooting range test area.

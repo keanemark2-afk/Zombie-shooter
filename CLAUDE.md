@@ -9,8 +9,9 @@ The full brief is the user's original prompt; key rules are repeated here.
 - Keep `PROGRESS.md` up to date in plain English.
 - Pushing: the user approved pushing to the work branch at the end of each phase
   (never to the default branch). Local commits any time.
-- Test before handing over: `npm run check` (typecheck, unit tests, ~30 s Playwright smoke
-  test that fails on any console error). Look at the screenshots in `test-results/`.
+- Test before handing over: `npm run check` (typecheck, unit tests, then the Playwright
+  browser tests - about 6 minutes, two files in parallel - which fail on any console
+  error). Look at the screenshots in `test-results/`.
 - Originality: mechanics only. No names or assets from any existing game.
 
 ## Code rules
@@ -44,6 +45,19 @@ The full brief is the user's original prompt; key rules are repeated here.
   `tuning.pistol`. Shots go through `resolveShot` (pellets add up; big total push =
   knockdown). Shotguns also have a close-range blast (`blastPush`). Long guns are
   children of the player root, placed each frame in `holdLongGun`, hands by IK.
+- Seven weapons (`WEAPONS`): `cycle` none/pump/bolt, `auto` (SMG fires while held),
+  `scope` (rifle: camera jumps to the eye, `.scope` overlay), `projectile` (rocket:
+  `Game.launchRocket` -> `explode`). Every gun section in tuning has the same keys
+  (a unit test checks), including `headPop`, `critChance`, `dismember`.
+- Gore: `resolveShot` decides `headPop` / `crit` / `severed` (pure, unit tested);
+  `Game.applyGore` does the visuals. `Zombie.popHead()` / `sever()` detach parts
+  (stand-in joints keep the pose code working); `GoreSystem` (`src/fx/gore.ts`) flings
+  pieces with simple physics and runs stump spurts. Gore level is a player setting.
+- Melee/knife/grab rules are pure in `src/combat/melee.ts` (unit tested). The player
+  plays moves (`startMelee`, `MELEE_TIMING`) and calls `meleeEvent`; the game applies
+  them to `meleeTarget`. The suplex body is placed by `Game.carryPose` each tick.
+  Zombie attacks go through `ZombieHost.attackPlayer` (parry -> grab -> hit).
+- Test hooks: `__deadAcre.zombie(kind, value)` forces a zombie state / grab / place.
 - Quick turn only triggers when the character faces away from the camera (the
   user hit accidental 180s when sprinting while backing off).
 - Game world updates at a fixed 60 Hz (`tick`), drawing interpolates positions (`render`).

@@ -3,6 +3,7 @@
 
 export type CrosshairStyle = 'ring' | 'cross' | 'dot' | 'brackets' | 'laser' | 'none';
 export type GunshotSound = 'recorded' | 'synth';
+export type GoreLevel = 'off' | 'stylized' | 'full';
 
 export interface Settings {
   crosshair: CrosshairStyle;
@@ -12,6 +13,8 @@ export interface Settings {
   /** Show the red laser line (the red dot is shown either way, except with "none"). */
   laserBeam: boolean;
   gunshotSound: GunshotSound;
+  /** Blood and dismemberment: none, blood only (no flying scraps), or everything. */
+  gore: GoreLevel;
 }
 
 export const CROSSHAIR_STYLES: Array<{ id: CrosshairStyle; label: string; hint: string }> = [
@@ -37,12 +40,19 @@ export const CROSSHAIR_SIZES: Array<{ id: number; label: string }> = [
   { id: 1.35, label: 'Large' },
 ];
 
+export const GORE_LEVELS: Array<{ id: GoreLevel; label: string; hint: string }> = [
+  { id: 'full', label: 'Full', hint: 'Heads burst into pieces, limbs tear off, plenty of blood.' },
+  { id: 'stylized', label: 'Stylized', hint: 'Heads burst and limbs tear off, but no flying scraps and less blood.' },
+  { id: 'off', label: 'Off', hint: 'No blood and nothing comes off. Big hits still kill outright.' },
+];
+
 const DEFAULTS: Settings = {
   crosshair: 'ring',
   crosshairColor: '#ffffff',
   crosshairSize: 1,
   laserBeam: true,
   gunshotSound: 'recorded',
+  gore: 'full',
 };
 
 const KEY = 'deadAcre.settings';
@@ -56,6 +66,7 @@ function load(): Settings {
     if (CROSSHAIR_SIZES.some((c) => c.id === saved.crosshairSize)) s.crosshairSize = saved.crosshairSize!;
     if (typeof saved.laserBeam === 'boolean') s.laserBeam = saved.laserBeam;
     if (saved.gunshotSound === 'recorded' || saved.gunshotSound === 'synth') s.gunshotSound = saved.gunshotSound;
+    if (GORE_LEVELS.some((g) => g.id === saved.gore)) s.gore = saved.gore!;
   } catch {
     // No saved settings (or the browser blocks storage): use the defaults.
   }
@@ -75,4 +86,13 @@ export function saveSettings(): void {
 export function resetSettings(): void {
   Object.assign(settings, DEFAULTS);
   saveSettings();
+}
+
+export function goreLevel(): GoreLevel {
+  return settings.gore;
+}
+
+/** How much blood to spray for the chosen gore level (1 = full). */
+export function bloodScale(): number {
+  return settings.gore === 'full' ? 1 : settings.gore === 'stylized' ? 0.6 : 0;
 }

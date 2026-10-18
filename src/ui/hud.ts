@@ -24,6 +24,19 @@ export class Hud {
   private readonly hint: HTMLDivElement;
   private readonly weaponName: HTMLDivElement;
   private readonly strip: HTMLDivElement;
+  private readonly prompt: HTMLDivElement;
+  private readonly promptKey: HTMLSpanElement;
+  private readonly promptLabel: HTMLSpanElement;
+  private readonly grab: HTMLDivElement;
+  private readonly grabFill: HTMLDivElement;
+  private readonly grabTime: HTMLDivElement;
+  private readonly grabKnife: HTMLDivElement;
+  private readonly knifeFill: HTMLDivElement;
+  private readonly knifeBar: HTMLDivElement;
+  private readonly scope: HTMLDivElement;
+  private readonly scopeCross: HTMLDivElement;
+  private readonly banner: HTMLDivElement;
+  private bannerTimer = 0;
   private stripTimer = 0;
   private stripKey = '';
   private markerTimer = 0;
@@ -35,11 +48,22 @@ export class Hud {
     this.root.innerHTML = `
       <div class="hurt-flash"></div>
       <div class="hit-marker"><i></i><i></i></div>
+      <div class="scope" hidden><div class="scope-cross"><i class="h"></i><i class="v"></i><b></b></div></div>
+      <div class="melee-prompt" hidden><span class="key">F</span><span class="label">Kick</span></div>
+      <div class="grab-prompt" hidden>
+        <div class="grab-title">GRABBED!</div>
+        <div class="grab-text"></div>
+        <div class="grab-bar"><div class="grab-fill"></div></div>
+        <div class="grab-time"></div>
+        <div class="grab-knife"></div>
+      </div>
+      <div class="banner"></div>
       <div class="weapon-strip"></div>
       <div class="ammo">
         <div class="weapon-name">KESTREL 9</div>
         <div class="ammo-count"><span class="loaded">10</span><span class="spare">/ &infin;</span></div>
         <div class="reload-bar"><div class="reload-fill"></div></div>
+        <div class="knife-bar" title="Knife condition"><span>KNIFE</span><div class="knife-track"><div class="knife-fill"></div></div></div>
       </div>
       <div class="range-stats"></div>
       <div class="play-hint"></div>`;
@@ -56,6 +80,18 @@ export class Hud {
     this.hint = q('.play-hint');
     this.weaponName = q('.weapon-name');
     this.strip = q('.weapon-strip');
+    this.prompt = q('.melee-prompt');
+    this.promptKey = q('.melee-prompt .key');
+    this.promptLabel = q('.melee-prompt .label');
+    this.grab = q('.grab-prompt');
+    this.grabFill = q('.grab-fill');
+    this.grabTime = q('.grab-time');
+    this.grabKnife = q('.grab-knife');
+    this.knifeFill = q('.knife-fill');
+    this.knifeBar = q('.knife-bar');
+    this.scope = q('.scope');
+    this.scopeCross = q('.scope-cross');
+    this.banner = q('.banner');
     this.root.hidden = true;
   }
 
@@ -98,6 +134,49 @@ export class Hud {
     this.stripTimer = 2.2;
   }
 
+  /** The "Kick" / "Suplex" prompt floating over a stunned zombie (null hides it). */
+  setMeleePrompt(at: { x: number; y: number } | null, key: string, label: string): void {
+    this.prompt.hidden = at === null;
+    if (!at) return;
+    this.prompt.style.left = `${at.x}px`;
+    this.prompt.style.top = `${at.y}px`;
+    if (this.promptKey.textContent !== key) this.promptKey.textContent = key;
+    if (this.promptLabel.textContent !== label) this.promptLabel.textContent = label;
+  }
+
+  /** The break-free bar while a zombie has hold of you (null hides it). */
+  setGrab(state: { progress: number; timeLeft: number; mash: string; knife: string; canKnife: boolean } | null): void {
+    this.grab.hidden = state === null;
+    if (!state) return;
+    this.grabFill.style.width = `${Math.min(100, state.progress * 100)}%`;
+    this.grabTime.style.width = `${Math.max(0, state.timeLeft * 100)}%`;
+    const text = `Mash <b>${state.mash}</b> to break free`;
+    const grabText = this.grab.querySelector('.grab-text') as HTMLDivElement;
+    if (grabText.innerHTML !== text) grabText.innerHTML = text;
+    const knife = state.canKnife ? `or press <b>${state.knife}</b> to stab your way out` : 'Your knife is broken';
+    if (this.grabKnife.innerHTML !== knife) this.grabKnife.innerHTML = knife;
+  }
+
+  /** Knife condition under the ammo counter (red when nearly broken). */
+  setKnife(condition: number): void {
+    this.knifeFill.style.width = `${Math.round(condition * 100)}%`;
+    this.knifeBar.classList.toggle('low', condition < 0.25);
+    this.knifeBar.classList.toggle('broken', condition <= 0);
+  }
+
+  /** The rifle scope view; `dx`, `dy` shift the crosshair with the scope's drift. */
+  setScope(on: boolean, dx = 0, dy = 0): void {
+    this.scope.hidden = !on;
+    if (on) this.scopeCross.style.transform = `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+  }
+
+  /** A big word in the middle of the screen for a moment ("PERFECT PARRY"). */
+  flashBanner(text: string, kind: 'good' | 'gore' = 'good'): void {
+    this.banner.textContent = text;
+    this.banner.className = `banner show ${kind}`;
+    this.bannerTimer = 0.9;
+  }
+
   hitMarker(zone: ZoneGroup, killed: boolean, seconds: number): void {
     this.marker.classList.remove('head', 'kill', 'show');
     void this.marker.offsetWidth; // restart the pop animation
@@ -133,6 +212,10 @@ export class Hud {
     this.markerTimer -= dt;
     if (this.markerTimer <= 0) this.marker.classList.remove('show');
     this.hurtLevel = Math.max(0, this.hurtLevel - dt * 1.6);
+    if (this.bannerTimer > 0) {
+      this.bannerTimer -= dt;
+      if (this.bannerTimer <= 0) this.banner.classList.remove('show');
+    }
     this.hurt.style.opacity = String(this.hurtLevel * 0.85);
   }
 }

@@ -457,7 +457,8 @@ export class PropBuilder {
     const g = new Group();
     g.position.set(x, 0, z);
     g.rotation.y = this.rand() * Math.PI * 2;
-    g.userData.dynamic = true; // explodes later
+    g.userData.dynamic = true; // blows up when shot
+    g.userData.barrel = true;
     parent.add(g);
     const r = 0.34;
     const h = 0.95;

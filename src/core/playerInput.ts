@@ -16,6 +16,8 @@ export class PlayerInputReader {
   private pendingFire = false;
   private pendingReload = false;
   private pendingSprint = false;
+  private pendingMelee = false;
+  private pendingKnife = false;
   private pendingPause = false;
   private pendingSlot: number | null = null;
   private pendingCycle = 0;
@@ -45,13 +47,15 @@ export class PlayerInputReader {
    * Call once per frame. Returns how far to turn the camera (radians).
    * `mouseActive` is false while the mouse is free for menus.
    */
-  frame(dt: number, mouseActive: boolean, aiming: boolean): { yaw: number; pitch: number } {
+  frame(dt: number, mouseActive: boolean, aiming: boolean, lookScale = 1): { yaw: number; pitch: number } {
     if (this.pad.active) this.lastDevice = 'gamepad';
     else if (this.input.active) this.lastDevice = 'keyboard';
 
     this.pendingFire ||= this.pressed('fire');
     this.pendingReload ||= this.pressed('reload');
     this.pendingSprint ||= this.pressed('sprint');
+    this.pendingMelee ||= this.pressed('melee');
+    this.pendingKnife ||= this.pressed('knife');
     this.pendingPause ||= this.pressed('pause');
     slotKeys.forEach((key, i) => {
       if (this.input.wasPressed(key)) this.pendingSlot = i + 1;
@@ -61,7 +65,7 @@ export class PlayerInputReader {
     if (this.pressed('prevWeapon')) this.pendingCycle -= 1;
 
     const c = tuning.controls;
-    const aimScale = aiming ? c.aimSensitivity : 1;
+    const aimScale = (aiming ? c.aimSensitivity : 1) * lookScale;
     const invert = c.invertY ? -1 : 1;
     let yaw = 0;
     let pitch = 0;
@@ -106,15 +110,21 @@ export class PlayerInputReader {
       moveY,
       aim: this.held('aim'),
       firePressed: this.pendingFire,
+      fireHeld: this.held('fire'),
       reloadPressed: this.pendingReload,
       sprint: this.held('sprint'),
       sprintPressed: this.pendingSprint,
+      meleePressed: this.pendingMelee,
+      knifePressed: this.pendingKnife,
+      knifeHeld: this.held('knife'),
       weaponSlot: this.pendingSlot,
       weaponCycle: Math.sign(this.pendingCycle),
     };
     this.pendingFire = false;
     this.pendingReload = false;
     this.pendingSprint = false;
+    this.pendingMelee = false;
+    this.pendingKnife = false;
     this.pendingSlot = null;
     this.pendingCycle = 0;
     return result;
@@ -123,6 +133,7 @@ export class PlayerInputReader {
   /** Forget any remembered presses (e.g. when the game is paused). */
   clear(): void {
     this.pendingFire = this.pendingReload = this.pendingSprint = this.pendingPause = false;
+    this.pendingMelee = this.pendingKnife = false;
     this.pendingSlot = null;
     this.pendingCycle = 0;
   }

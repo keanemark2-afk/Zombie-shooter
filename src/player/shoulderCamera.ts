@@ -75,7 +75,11 @@ export class ShoulderCamera {
     return out.set(-Math.sin(y) * Math.cos(p), Math.sin(p), -Math.cos(y) * Math.cos(p));
   }
 
-  update(dt: number, playerPos: Vector3, aiming: boolean, world: World): void {
+  /**
+   * `scopeEye`: looking through a rifle scope from this point (the camera
+   * jumps to the eye and zooms right in), or null for the normal view.
+   */
+  update(dt: number, playerPos: Vector3, aiming: boolean, world: World, scopeEye: Vector3 | null = null): void {
     const c = tuning.camera;
     const blendSpeed = 1 / Math.max(0.01, c.zoomTime);
     this.aimBlend = MathUtils.clamp(this.aimBlend + (aiming ? 1 : -1) * blendSpeed * dt, 0, 1);
@@ -96,7 +100,7 @@ export class ShoulderCamera {
     const height = MathUtils.lerp(c.height, c.aimHeight, a);
     const offset = MathUtils.lerp(c.shoulderOffset, c.aimShoulderOffset, a);
     const distance = MathUtils.lerp(c.distance, c.aimDistance, a);
-    const fov = MathUtils.lerp(c.fov, c.aimFov, a);
+    const fov = scopeEye ? c.scopeFov : MathUtils.lerp(c.fov, c.aimFov, a);
     if (Math.abs(this.camera.fov - fov) > 1e-3) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
@@ -132,6 +136,7 @@ export class ShoulderCamera {
     const dist = Math.max(0.12, Math.min(distance, this.roomBehind));
     this.distance = dist;
     this.eye.copy(pivot).addScaledVector(desired, dist);
+    if (scopeEye) this.eye.copy(scopeEye);
     this.camera.position.copy(this.eye);
 
     // Shake: trauma squared feels natural (small hits barely shake).

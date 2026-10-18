@@ -11,14 +11,31 @@ import {
 } from 'three';
 import { seededRandom } from '../world/textures';
 
-export type DecalKind = 'hole' | 'blood';
+export type DecalKind = 'hole' | 'blood' | 'scorch';
 
 function decalTexture(kind: DecalKind): CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const ctx = c.getContext('2d')!;
-  const rand = seededRandom(kind === 'hole' ? 5 : 9);
-  if (kind === 'hole') {
+  const rand = seededRandom(kind === 'hole' ? 5 : kind === 'blood' ? 9 : 17);
+  if (kind === 'scorch') {
+    // A black blast mark with ragged streaks.
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 62);
+    g.addColorStop(0, 'rgba(6,5,4,0.95)');
+    g.addColorStop(0.45, 'rgba(14,11,9,0.8)');
+    g.addColorStop(1, 'rgba(20,16,12,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.strokeStyle = 'rgba(8,6,5,0.6)';
+    for (let i = 0; i < 16; i++) {
+      const a = rand() * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(64 + Math.cos(a) * 20, 64 + Math.sin(a) * 20);
+      ctx.lineTo(64 + Math.cos(a) * (45 + rand() * 18), 64 + Math.sin(a) * (45 + rand() * 18));
+      ctx.lineWidth = 2 + rand() * 4;
+      ctx.stroke();
+    }
+  } else if (kind === 'hole') {
     const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 60);
     g.addColorStop(0, 'rgba(8,6,5,1)');
     g.addColorStop(0.25, 'rgba(20,16,12,0.95)');
@@ -83,6 +100,7 @@ export class DecalPool {
       polygonOffset: true,
       polygonOffsetFactor: -4,
       roughness: kind === 'blood' ? 0.35 : 0.95,
+      metalness: 0,
     });
     this.mesh = new InstancedMesh(new PlaneGeometry(1, 1), mat, capacity);
     this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);

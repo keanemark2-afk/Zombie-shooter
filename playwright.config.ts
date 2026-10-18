@@ -5,6 +5,8 @@ const PORT = 5199;
 export default defineConfig({
   testDir: 'tests/smoke',
   timeout: 600_000,
+  // The two test files run side by side to save time.
+  workers: 2,
   expect: { timeout: 15_000 },
   reporter: 'list',
   outputDir: 'test-results',

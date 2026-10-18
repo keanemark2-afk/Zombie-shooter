@@ -4,7 +4,7 @@ An over-the-shoulder zombie arena shooter that plays like the classic survival-h
 action games: tight pistol gunplay, body-part hit reactions, kicks and suplexes,
 a trader between waves, and a score-attack mode. No story, just the fighting.
 
-**Status:** Phase 1 of 7 (gunfeel: a pistol, two shotguns, one zombie type, a shooting range). See `PROGRESS.md`.
+**Status:** Phase 2 of 7 (seven weapons, kicks and suplexes, the knife and parrying, grabs, bursting heads and torn-off limbs). See `PROGRESS.md`.
 
 ## How to play (Windows)
 
@@ -22,14 +22,17 @@ If Node.js is missing, the launcher tells you exactly what to install.
 | Aim (laser sight) | Hold right mouse | Hold L2 | Hold LT |
 | Shoot (while aiming) | Left mouse | R2 | RT |
 | Reload | R | Square | X |
-| Switch weapon | 1 2 3 / mouse wheel | D-pad left / right | D-pad left / right |
+| Switch weapon | 1-7 / mouse wheel | D-pad left / right | D-pad left / right |
+| Kick / suplex / finish (when prompted) | F | Cross | A |
+| Knife slash / parry (hold to block) | V | R1 | RB |
+| Break free of a grab | Mash F (or V to stab) | Mash Cross (or R1) | Mash A (or RB) |
 | Sprint | Hold Shift | Hold Cross | Hold A |
 | Quick 180 turn | Hold S + tap Shift | Down + Cross | Down + A |
 | Menu / pause | Esc | Options | Menu |
 | Tuning panel / FPS | F1 / F3 | | |
 
-Crosshair style, colour and size, the laser line and the gunshot sound can be
-changed in **menu > Settings**.
+Crosshair style, colour and size, the laser line, the gunshot sound and the gore level
+can be changed in **menu > Settings**.
 
 ## For developers
 

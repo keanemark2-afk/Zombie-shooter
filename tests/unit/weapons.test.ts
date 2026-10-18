@@ -60,13 +60,31 @@ describe('randomInCone', () => {
 });
 
 describe('weapons', () => {
-  it('has a pistol and two shotguns on slots 1, 2 and 3', () => {
+  it('has seven guns on quick-slots 1 to 7', () => {
     expect(WEAPONS.map((w) => [w.id, w.slot])).toEqual([
       ['pistol', 1],
       ['pump', 2],
       ['drum', 3],
+      ['smg', 4],
+      ['rifle', 5],
+      ['magnum', 6],
+      ['rocket', 7],
     ]);
     expect(def('pump').stats().pellets).toBeGreaterThan(1);
+  });
+
+  it('gives every gun the same set of numbers in tuning.ts', () => {
+    const keys = Object.keys(tuning.pistol).sort();
+    for (const w of WEAPONS) expect(Object.keys(w.stats()).sort(), w.id).toEqual(keys);
+  });
+
+  it('only the heavy guns burst heads and tear off limbs', () => {
+    expect(def('pistol').stats().headPop).toBe(0);
+    expect(def('pistol').stats().dismember).toBe(0);
+    for (const id of ['pump', 'drum', 'rifle', 'magnum']) {
+      expect(def(id).stats().headPop, id).toBeGreaterThan(0.5);
+      expect(def(id).stats().dismember, id).toBeGreaterThan(0.1);
+    }
   });
 });
 
@@ -148,5 +166,51 @@ describe('Gun: magazine weapons', () => {
     const events = run(gun, tuning.pistol.emptyReloadTime + 0.05);
     expect(events).toEqual(['magOut', 'magIn', 'slide']);
     expect(gun.ammo).toBe(tuning.pistol.capacity);
+  });
+});
+
+describe('Gun: new weapons', () => {
+  it('the submachine gun fires as fast as its fire rate allows while held', () => {
+    const gun = new Gun(def('smg'));
+    let fired = 0;
+    for (let t = 0; t < 1; t += 1 / 60) {
+      if (gun.pullTrigger() === 'fired') fired++;
+      gun.tick(1 / 60, true, () => {});
+    }
+    expect(def('smg').auto).toBe(true);
+    expect(fired).toBeGreaterThanOrEqual(Math.floor(1 / tuning.smg.fireInterval) - 1);
+  });
+
+  it('the rifle works its bolt after every shot and loads round by round', () => {
+    const gun = new Gun(def('rifle'));
+    expect(gun.pullTrigger()).toBe('fired');
+    expect(gun.pullTrigger()).toBe('busy');
+    const events = run(gun, tuning.rifle.fireInterval + 0.05);
+    expect(events).toContain('bolt');
+    expect(events).not.toContain('pump');
+    gun.ammo = 0;
+    gun.startReload(true);
+    const reload = run(gun, 6);
+    expect(reload.filter((e) => e === 'roundIn')).toHaveLength(tuning.rifle.capacity);
+    expect(reload[reload.length - 1]).toBe('bolt');
+  });
+
+  it('the revolver swings out its cylinder to reload', () => {
+    const gun = new Gun(def('magnum'));
+    gun.ammo = 0;
+    gun.startReload(true);
+    expect(run(gun, tuning.magnum.reloadTime + 0.05)).toEqual(['cylinderOut', 'cylinderIn']);
+    expect(gun.ammo).toBe(tuning.magnum.capacity);
+  });
+
+  it('the rocket launcher holds one rocket', () => {
+    const gun = new Gun(def('rocket'));
+    expect(gun.pullTrigger()).toBe('fired');
+    expect(gun.ammo).toBe(0);
+    gun.cooldown = 0;
+    expect(gun.pullTrigger()).toBe('empty');
+    gun.startReload(true);
+    expect(run(gun, tuning.rocket.reloadTime + 0.05)).toEqual(['rocketIn']);
+    expect(gun.ammo).toBe(1);
   });
 });
