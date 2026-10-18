@@ -266,6 +266,41 @@ body {
   color: var(--text-dim);
 }
 
+.weapon-strip {
+  position: absolute;
+  right: 28px;
+  bottom: 118px;
+  text-align: right;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  opacity: 0;
+  transition: opacity 0.25s;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.weapon-strip.visible {
+  opacity: 1;
+}
+
+.weapon-strip div {
+  color: var(--text-dim);
+  padding: 2px 0;
+}
+
+.weapon-strip div.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.weapon-strip span {
+  display: inline-block;
+  width: 18px;
+  margin-right: 8px;
+  text-align: center;
+  border: 1px solid currentColor;
+  font-size: 11px;
+}
+
 .reload-bar {
   height: 4px;
   background: rgba(255, 255, 255, 0.15);

@@ -1,5 +1,6 @@
 import { Vector3, type Camera } from 'three';
 import type { ZoneGroup } from '../combat/damage';
+import type { GunEvent, WeaponDef } from '../combat/weapons';
 import { tuning } from '../config/tuning';
 import type { ZombieVoice } from '../enemies/zombie';
 import type { Surface } from '../world/props';
@@ -270,6 +271,26 @@ export class Sfx implements ZombieVoice {
   // ---------------------------------------------------------------------------
   // The pistol
 
+  /** The right bang for the gun in your hands. */
+  shot(kind: WeaponDef['sound']): void {
+    if (kind === 'pistol') this.gunshot();
+    else this.shotgunBlast(kind === 'shotgun');
+  }
+
+  /** A deep, rolling shotgun boom. `heavy` = pump gun (bigger and longer). */
+  shotgunBlast(heavy: boolean): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, heavy ? 0.75 : 0.6);
+    const k = heavy ? 1 : 0.85;
+    this.burst(out, 0.09, { filter: 'bandpass', freq: 1900, q: 0.6, gain: 1.0 * k, attack: 0.0005 });
+    this.burst(out, heavy ? 0.5 : 0.36, { filter: 'lowpass', freq: 2400, freqEnd: 180, gain: 1.0 * k, attack: 0.001 });
+    this.tone(out, heavy ? 0.32 : 0.24, { freq: 110, freqEnd: 32, gain: 1.0 * k, attack: 0.001 });
+    this.tone(out, 0.12, { freq: 60, freqEnd: 30, gain: 0.8 * k, attack: 0.002 });
+    // Rolling echo off the buildings and hills.
+    this.burst(out, 0.5, { filter: 'lowpass', freq: 600, freqEnd: 200, gain: 0.18 * k, delay: 0.2, attack: 0.03 });
+    this.burst(out, 0.6, { filter: 'lowpass', freq: 400, freqEnd: 150, gain: 0.08 * k, delay: 0.45, attack: 0.05 });
+  }
+
   gunshot(): void {
     if (!this.ready) return;
     const out = this.output(null, this.fxBus, 0.55);
@@ -288,25 +309,59 @@ export class Sfx implements ZombieVoice {
     this.tone(out, 0.012, { type: 'square', freq: 1800, gain: 0.08 });
   }
 
-  reloadStep(step: 'out' | 'in' | 'rack'): void {
-    if (!this.ready) return;
+  /** Mechanical sounds: magazines, pumps, shells and bolts. */
+  gunEvent(e: GunEvent): void {
+    if (!this.ready || e === 'eject') return;
     const out = this.output(null, this.fxBus, 0.08);
-    if (step === 'out') {
-      this.burst(out, 0.03, { filter: 'bandpass', freq: 2600, q: 3, gain: 0.35 });
-      this.burst(out, 0.1, { filter: 'bandpass', freq: 900, q: 1.5, gain: 0.25, delay: 0.02 });
-    } else if (step === 'in') {
-      this.burst(out, 0.05, { filter: 'lowpass', freq: 1300, gain: 0.55 });
-      this.burst(out, 0.02, { filter: 'bandpass', freq: 3200, q: 4, gain: 0.35, delay: 0.01 });
-    } else {
-      this.burst(out, 0.04, { filter: 'bandpass', freq: 2400, q: 3, gain: 0.45 });
-      this.burst(out, 0.05, { filter: 'bandpass', freq: 2000, q: 3, gain: 0.5, delay: 0.09 });
-      this.tone(out, 0.06, { freq: 900, freqEnd: 600, gain: 0.08, delay: 0.09 });
+    switch (e) {
+      case 'magOut':
+        this.burst(out, 0.03, { filter: 'bandpass', freq: 2600, q: 3, gain: 0.35 });
+        this.burst(out, 0.1, { filter: 'bandpass', freq: 900, q: 1.5, gain: 0.25, delay: 0.02 });
+        break;
+      case 'magIn':
+        this.burst(out, 0.05, { filter: 'lowpass', freq: 1300, gain: 0.55 });
+        this.burst(out, 0.02, { filter: 'bandpass', freq: 3200, q: 4, gain: 0.35, delay: 0.01 });
+        break;
+      case 'slide':
+        this.burst(out, 0.04, { filter: 'bandpass', freq: 2400, q: 3, gain: 0.45 });
+        this.burst(out, 0.05, { filter: 'bandpass', freq: 2000, q: 3, gain: 0.5, delay: 0.09 });
+        this.tone(out, 0.06, { freq: 900, freqEnd: 600, gain: 0.08, delay: 0.09 });
+        break;
+      case 'pump':
+        // Clack (back) ... clack (forward).
+        this.burst(out, 0.07, { filter: 'bandpass', freq: 1300, q: 2, gain: 0.6 });
+        this.burst(out, 0.02, { filter: 'highpass', freq: 3500, gain: 0.3, delay: 0.01 });
+        this.burst(out, 0.08, { filter: 'bandpass', freq: 1700, q: 2, gain: 0.7, delay: 0.14 });
+        this.burst(out, 0.04, { filter: 'lowpass', freq: 900, gain: 0.45, delay: 0.15 });
+        break;
+      case 'shellIn':
+        this.burst(out, 0.05, { filter: 'bandpass', freq: 1100, q: 1.5, gain: 0.35 });
+        this.burst(out, 0.015, { filter: 'bandpass', freq: 3600, q: 4, gain: 0.35, delay: 0.045 });
+        break;
+      case 'drumOut':
+        this.burst(out, 0.04, { filter: 'bandpass', freq: 2200, q: 3, gain: 0.45 });
+        this.burst(out, 0.12, { filter: 'lowpass', freq: 700, gain: 0.45, delay: 0.03 });
+        break;
+      case 'drumIn':
+        this.burst(out, 0.08, { filter: 'lowpass', freq: 900, gain: 0.7 });
+        this.burst(out, 0.025, { filter: 'bandpass', freq: 2800, q: 4, gain: 0.45, delay: 0.02 });
+        break;
+      case 'bolt':
+        this.burst(out, 0.05, { filter: 'bandpass', freq: 2000, q: 3, gain: 0.55 });
+        this.burst(out, 0.06, { filter: 'bandpass', freq: 1600, q: 3, gain: 0.6, delay: 0.11 });
+        break;
     }
   }
 
-  shellLand(pos: Vector3): void {
+  shellLand(pos: Vector3, kind: 'brass' | 'hull' = 'brass'): void {
     if (!this.ready) return;
     const out = this.output(pos, this.fxBus, 0.05);
+    if (kind === 'hull') {
+      // Plastic shotgun hull: a hollow little thunk.
+      this.burst(out, 0.05, { filter: 'bandpass', freq: 800, q: 2, gain: 0.12 });
+      this.tone(out, 0.04, { freq: 1900, gain: 0.03, delay: 0.1 });
+      return;
+    }
     this.tone(out, 0.07, { freq: 4300 + Math.random() * 600, gain: 0.06 });
     this.tone(out, 0.06, { freq: 6100, gain: 0.04, delay: 0.09 + Math.random() * 0.05 });
   }

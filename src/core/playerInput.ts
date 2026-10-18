@@ -1,4 +1,4 @@
-import { bindings, moveKeys, type Action } from '../config/controls';
+import { bindings, moveKeys, slotKeys, type Action } from '../config/controls';
 import { tuning } from '../config/tuning';
 import type { PlayerInput } from '../player/player';
 import type { GamepadReader } from './gamepad';
@@ -17,6 +17,8 @@ export class PlayerInputReader {
   private pendingReload = false;
   private pendingSprint = false;
   private pendingPause = false;
+  private pendingSlot: number | null = null;
+  private pendingCycle = 0;
 
   constructor(
     private readonly input: Input,
@@ -51,6 +53,12 @@ export class PlayerInputReader {
     this.pendingReload ||= this.pressed('reload');
     this.pendingSprint ||= this.pressed('sprint');
     this.pendingPause ||= this.pressed('pause');
+    slotKeys.forEach((key, i) => {
+      if (this.input.wasPressed(key)) this.pendingSlot = i + 1;
+    });
+    this.pendingCycle += this.input.takeWheel();
+    if (this.pressed('nextWeapon')) this.pendingCycle += 1;
+    if (this.pressed('prevWeapon')) this.pendingCycle -= 1;
 
     const c = tuning.controls;
     const aimScale = aiming ? c.aimSensitivity : 1;
@@ -101,15 +109,21 @@ export class PlayerInputReader {
       reloadPressed: this.pendingReload,
       sprint: this.held('sprint'),
       sprintPressed: this.pendingSprint,
+      weaponSlot: this.pendingSlot,
+      weaponCycle: Math.sign(this.pendingCycle),
     };
     this.pendingFire = false;
     this.pendingReload = false;
     this.pendingSprint = false;
+    this.pendingSlot = null;
+    this.pendingCycle = 0;
     return result;
   }
 
   /** Forget any remembered presses (e.g. when the game is paused). */
   clear(): void {
     this.pendingFire = this.pendingReload = this.pendingSprint = this.pendingPause = false;
+    this.pendingSlot = null;
+    this.pendingCycle = 0;
   }
 }

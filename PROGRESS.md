@@ -4,9 +4,33 @@ Plain-English log of what's built, what's next and what's known to be wrong.
 
 ## Where we are
 
-**Phase 1 - Gunfeel: done (waiting for your OK).**
+**Phase 1 - Gunfeel: done, plus shotguns and the 180-spin fix (waiting for your OK).**
 
 ## Done
+
+### Shotguns and fixes (added after Phase 1, at your request)
+- **Two shotguns** (brought forward from Phase 4):
+  - **Bramble 12** (slot 2): pump-action, 6 shells, loads one shell at a time (fire
+    to stop reloading early), big wide blast, pump "clack-clack" after every shot.
+  - **Thresher** (slot 3): semi-automatic drum shotgun, 12 shells, fires as fast as you
+    pull the trigger, swaps the whole drum to reload.
+- **Swapping weapons:** keys 1 / 2 / 3, mouse wheel, or D-pad left / right. A small
+  list of your weapons appears bottom-right when you swap.
+- **Shotguns feel like shotguns:** 8-9 pellets that spread out and weaken with distance,
+  a close-range blast that **bowls over everything right in front of you** (one shot
+  at close range knocks a whole group flat on their backs), big recoil and kick, a
+  deep boom with echo, red shotgun shells flying out, stock held in the shoulder
+  with the left hand on the pump.
+- **New zombie reaction: knocked down** - blown backwards onto its back, lies there,
+  then climbs back up.
+- **Unwanted 180 spin fixed:** the quick turn now only happens when your character
+  is facing away from the camera (so holding S to back off and pressing Shift just
+  sprints). You can switch the quick turn off: F1 > Player > Quick turn.
+- **Smoother:** the quick turn and the camera sliding away from walls are now drawn
+  smoothly every frame; the mouse is captured "raw" (no Windows mouse acceleration)
+  and the browser's occasional fake mouse jumps are filtered out.
+- **Range:** F1 > Range > Dummy count puts up to 6 dummies side by side (try 3 with a
+  shotgun at 3 m).
 
 ### Phase 1 - Gunfeel
 - **Start menu:** pick **Shooting range** or **Village**. Esc (or Options on a
@@ -55,7 +79,7 @@ Plain-English log of what's built, what's next and what's known to be wrong.
 - **Fog removed** as you asked (F1 > Atmosphere > Fog density brings it back).
 - **Tuning:** 128 settings in F1, each with a plain-English note; drop-down lists
   for choices. Debug extras: show hitboxes, show colliders, and F4 free camera.
-- **Automated checks:** 49 unit tests (damage rules, reactions, reticle focus,
+- **Automated checks (at the end of Phase 1):** 49 unit tests (damage rules, reactions, reticle focus,
   tuning file), and two browser tests that play the range (headshot, leg, arm, kill,
   respawn, reload, quick turn) and the village (with a pretend PlayStation pad,
   pause menu, tuning panel) for about 30 seconds, failing on any error.
@@ -71,6 +95,8 @@ roundhouse kick (knocks down everyone nearby), front kick, suplex, knife finishe
 the ground, knife slash, parry and perfect parry, grabs and breaking free.
 
 ## Known problems / notes
+- All three weapons are always carried for now; the inventory case and the Trader
+  (where you'll buy and upgrade guns) come in Phase 5.
 - Village zombies walk straight at you and slide around obstacles; they can get
   briefly stuck behind the well or a shed. Proper pathfinding and group tactics
   (surrounding you, taking turns) come in Phase 3.

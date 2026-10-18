@@ -21,7 +21,7 @@ export const PAD = {
   right: 15,
 } as const;
 
-export type Action = 'aim' | 'fire' | 'reload' | 'sprint' | 'melee' | 'knife' | 'pause';
+export type Action = 'aim' | 'fire' | 'reload' | 'sprint' | 'melee' | 'knife' | 'pause' | 'nextWeapon' | 'prevWeapon';
 
 export interface Binding {
   keys: string[];
@@ -37,7 +37,12 @@ export const bindings: Record<Action, Binding> = {
   melee: { keys: ['KeyF'], pad: PAD.south },
   knife: { keys: ['KeyV'], pad: PAD.r1 },
   pause: { keys: [], pad: PAD.start },
+  nextWeapon: { keys: [], pad: PAD.right },
+  prevWeapon: { keys: [], pad: PAD.left },
 };
+
+/** Keys 1-8 pick a weapon quick-slot directly. */
+export const slotKeys = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8'];
 
 export const moveKeys = {
   forward: ['KeyW', 'ArrowUp'],

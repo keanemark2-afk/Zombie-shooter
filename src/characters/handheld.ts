@@ -12,7 +12,7 @@ import {
 // Things characters hold. In a hand's own frame, -y points out past the
 // fingers (along the arm) and +z points out of the bottom of the fist.
 
-const gunMetal = new MeshStandardMaterial({ color: '#25272a', roughness: 0.45, metalness: 0.8 });
+const gunMetal = new MeshStandardMaterial({ color: '#3a3d42', roughness: 0.4, metalness: 0.8 });
 const gunGrip = new MeshStandardMaterial({ color: '#1c1a18', roughness: 0.8, metalness: 0.1 });
 const laserBody = new MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.5, metalness: 0.5 });
 const wood = new MeshStandardMaterial({ color: '#5a4330', roughness: 0.9 });
@@ -63,6 +63,102 @@ export function buildPistol(): PistolModel {
   ejectionPort.position.set(0.02, -0.06, -0.07);
   group.add(ejectionPort);
   return { group, slide, muzzle, laser, ejectionPort };
+}
+
+const stockWood = new MeshStandardMaterial({ color: '#6a4a30', roughness: 0.7 });
+const blackPoly = new MeshStandardMaterial({ color: '#1e1f20', roughness: 0.6, metalness: 0.2 });
+
+export interface LongGunModel {
+  /** Origin is the end of the stock (rests in the shoulder); the barrel points along -z. */
+  group: Group;
+  muzzle: Object3D;
+  laser: Object3D;
+  ejectionPort: Object3D;
+  /** Where the right hand holds the grip. */
+  grip: Object3D;
+  /** Where the left hand holds the fore-end (moves with the pump). */
+  fore: Object3D;
+  /** The part that slides back and forth when pumping (or the bolt). */
+  action: Object3D;
+  /** How far the action travels when pulled back, in metres. */
+  actionTravel: number;
+}
+
+function gunPart(parent: Object3D, geo: BoxGeometry | CylinderGeometry, mat: MeshStandardMaterial, x: number, y: number, z: number, rotX = 0): Mesh {
+  const m = new Mesh(geo, mat);
+  m.position.set(x, y, z);
+  m.rotation.x = rotX;
+  m.castShadow = true;
+  m.raycast = () => {};
+  parent.add(m);
+  return m;
+}
+
+function point(parent: Object3D, x: number, y: number, z: number): Object3D {
+  const o = new Object3D();
+  o.position.set(x, y, z);
+  parent.add(o);
+  return o;
+}
+
+/** Pump-action shotgun: wooden stock and pump, long barrel with a tube magazine under it. */
+export function buildPumpShotgun(): LongGunModel {
+  const g = new Group();
+  const along = Math.PI / 2; // cylinders lie along z
+  gunPart(g, new BoxGeometry(0.04, 0.11, 0.2), stockWood, 0, -0.035, -0.1, -0.12);
+  gunPart(g, new BoxGeometry(0.036, 0.06, 0.12), stockWood, 0, -0.02, -0.24, 0.1);
+  gunPart(g, new BoxGeometry(0.046, 0.075, 0.22), gunMetal, 0, 0.005, -0.38);
+  gunPart(g, new BoxGeometry(0.012, 0.035, 0.05), gunMetal, 0, -0.045, -0.36);
+  gunPart(g, new CylinderGeometry(0.015, 0.015, 0.6, 10), gunMetal, 0, 0.022, -0.78, along);
+  gunPart(g, new CylinderGeometry(0.011, 0.011, 0.44, 8), gunMetal, 0, -0.012, -0.7, along);
+  const action = new Group();
+  action.position.set(0, -0.012, -0.64);
+  g.add(action);
+  gunPart(action, new CylinderGeometry(0.024, 0.022, 0.17, 10), stockWood, 0, 0, 0, along);
+  const fore = point(action, 0, -0.03, 0);
+  gunPart(g, new BoxGeometry(0.016, 0.02, 0.05), laserBody, 0, -0.035, -0.9);
+  return {
+    group: g,
+    muzzle: point(g, 0, 0.022, -1.08),
+    laser: point(g, 0, -0.035, -0.93),
+    ejectionPort: point(g, 0.03, 0.015, -0.38),
+    grip: point(g, 0, -0.055, -0.24),
+    fore,
+    action,
+    actionTravel: 0.1,
+  };
+}
+
+/** Semi-automatic drum shotgun: black, short barrel, big drum magazine, front grip. */
+export function buildDrumShotgun(): LongGunModel {
+  const g = new Group();
+  const along = Math.PI / 2;
+  // Skeleton stock.
+  gunPart(g, new BoxGeometry(0.012, 0.1, 0.02), blackPoly, 0, -0.03, -0.01);
+  gunPart(g, new BoxGeometry(0.012, 0.012, 0.2), blackPoly, 0, 0.015, -0.1);
+  gunPart(g, new BoxGeometry(0.012, 0.012, 0.22), blackPoly, 0, -0.07, -0.11, -0.25);
+  gunPart(g, new BoxGeometry(0.03, 0.1, 0.035), blackPoly, 0, -0.07, -0.24, 0.3);
+  gunPart(g, new BoxGeometry(0.05, 0.085, 0.3), gunMetal, 0, 0.01, -0.37);
+  const action = new Group();
+  action.position.set(0.028, 0.03, -0.34);
+  g.add(action);
+  gunPart(action, new BoxGeometry(0.012, 0.012, 0.03), gunMetal, 0, 0, 0);
+  const drum = gunPart(g, new CylinderGeometry(0.075, 0.075, 0.06, 18), blackPoly, 0, -0.07, -0.4);
+  drum.rotation.z = Math.PI / 2;
+  gunPart(g, new CylinderGeometry(0.018, 0.018, 0.42, 10), gunMetal, 0, 0.025, -0.72, along);
+  gunPart(g, new BoxGeometry(0.04, 0.045, 0.18), blackPoly, 0, -0.005, -0.6);
+  gunPart(g, new BoxGeometry(0.028, 0.09, 0.035), blackPoly, 0, -0.07, -0.6, -0.15);
+  gunPart(g, new BoxGeometry(0.016, 0.02, 0.05), laserBody, 0, -0.035, -0.75);
+  return {
+    group: g,
+    muzzle: point(g, 0, 0.025, -0.94),
+    laser: point(g, 0, -0.035, -0.78),
+    ejectionPort: point(g, 0.03, 0.02, -0.34),
+    grip: point(g, 0, -0.08, -0.24),
+    fore: point(g, 0, -0.1, -0.6),
+    action,
+    actionTravel: 0.06,
+  };
 }
 
 export type ToolKind = 'sickle' | 'club';

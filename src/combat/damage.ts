@@ -19,6 +19,7 @@ export type Reaction =
   | 'kneel' // drops to one knee
   | 'trip' // was running: falls flat on its face
   | 'armFlinch' // arm knocked back, drops what it was holding
+  | 'knockdown' // blown off its feet onto its back (a close shotgun blast)
   | 'death';
 
 export interface WeaponHit {
@@ -45,11 +46,17 @@ export interface DamageRules {
     legKneelChance: number;
     kneelSpinChance: number;
     knockbackThreshold: number;
+    knockdownThreshold: number;
   };
 }
 
 export interface HitResult {
+  /** The body part that decided the reaction (the head if any pellet hit it). */
   zone: Zone;
+  /** Every body part that was hit by this shot. */
+  zones: Zone[];
+  /** How many bullets or pellets hit. */
+  pellets: number;
   damage: number;
   healthAfter: number;
   killed: boolean;
@@ -60,6 +67,13 @@ export interface HitResult {
   spin: boolean;
   dropWeapon: boolean;
   cancelThrow: boolean;
+  knockback: number;
+}
+
+/** One bullet or pellet that hit a zombie. `damage` is before body-part multipliers. */
+export interface PelletHit {
+  zone: Zone;
+  damage: number;
   knockback: number;
 }
 
@@ -76,12 +90,49 @@ export function resolveHit(
   rules: DamageRules,
   random: () => number = Math.random,
 ): HitResult {
-  const group = zoneGroup(zone);
-  const damage = weapon.damage * rules.damage[group];
+  return resolveShot([{ zone, damage: weapon.damage, knockback: weapon.knockback }], target, focus, rules, random);
+}
+
+/**
+ * Works out the result of one shot (a single bullet, or every shotgun pellet
+ * that hit the same zombie). Damage and push add up across pellets; the
+ * reaction comes from the head if any pellet hit it, otherwise from the body
+ * part that took the most damage. A big enough total push knocks it down.
+ */
+export function resolveShot(
+  pellets: PelletHit[],
+  target: TargetState,
+  focus: number,
+  rules: DamageRules,
+  random: () => number = Math.random,
+): HitResult {
+  const byZone = new Map<Zone, number>();
+  let damage = 0;
+  let knockback = 0;
+  for (const p of pellets) {
+    const d = p.damage * rules.damage[zoneGroup(p.zone)];
+    byZone.set(p.zone, (byZone.get(p.zone) ?? 0) + d);
+    damage += d;
+    knockback += p.knockback;
+  }
+  let main: Zone = pellets[0]?.zone ?? 'torso';
+  let best = -1;
+  for (const [z, d] of byZone) {
+    if (d > best) {
+      best = d;
+      main = z;
+    }
+  }
+  if (byZone.has('head')) main = 'head';
+  const zones = [...byZone.keys()];
+  const anyArm = byZone.has('armL') || byZone.has('armR');
+
   const healthAfter = target.invincible ? target.health : target.health - damage;
   const killed = !target.invincible && healthAfter <= 0;
   const result: HitResult = {
-    zone,
+    zone: main,
+    zones,
+    pellets: pellets.filter((p) => p.damage > 0).length,
     damage,
     healthAfter: Math.max(0, healthAfter),
     killed,
@@ -96,12 +147,20 @@ export function resolveHit(
   if (killed) {
     result.reaction = 'death';
     result.dropWeapon = target.holdingWeapon;
-    result.knockback = weapon.knockback;
+    result.knockback = knockback;
     return result;
   }
 
   const r = rules.reactions;
-  switch (group) {
+  if (!target.downed && knockback >= r.knockdownThreshold) {
+    result.reaction = 'knockdown';
+    result.knockback = knockback;
+    result.dropWeapon = target.holdingWeapon;
+    result.cancelThrow = target.windingUpThrow;
+    return result;
+  }
+
+  switch (zoneGroup(main)) {
     case 'head': {
       if (target.downed) break;
       const chance = r.classicHeadStagger
@@ -124,16 +183,19 @@ export function resolveHit(
     }
     case 'arm': {
       result.reaction = target.downed ? 'none' : 'armFlinch';
-      result.dropWeapon = target.holdingWeapon;
-      result.cancelThrow = target.windingUpThrow;
       break;
     }
     case 'torso': {
       if (target.downed) break;
-      result.knockback = weapon.knockback;
-      result.reaction = weapon.knockback >= r.knockbackThreshold ? 'knockback' : 'torsoFlinch';
+      result.knockback = knockback;
+      result.reaction = knockback >= r.knockbackThreshold ? 'knockback' : 'torsoFlinch';
       break;
     }
+  }
+  // Any hit on an arm knocks loose what it holds and spoils a throw.
+  if (anyArm) {
+    result.dropWeapon = target.holdingWeapon;
+    result.cancelThrow = target.windingUpThrow;
   }
   return result;
 }

@@ -33,5 +33,12 @@ The full brief is the user's original prompt; key rules are repeated here.
   runtime (it rebuilds every shader): keep them and set intensity 0 instead.
 - Elements toggled with the `hidden` attribute rely on the global `[hidden]` CSS rule.
 - Dispose geometries of removed zombies/props (materials are shared caches).
+- Weapons: definitions + ammo/pump/reload state machine in `src/combat/weapons.ts`
+  (unit tested); each gun's numbers are a tuning section with the same shape as
+  `tuning.pistol`. Shots go through `resolveShot` (pellets add up; big total push =
+  knockdown). Shotguns also have a close-range blast (`blastPush`). Long guns are
+  children of the player root, placed each frame in `holdLongGun`, hands by IK.
+- Quick turn only triggers when the character faces away from the camera (the
+  user hit accidental 180s when sprinting while backing off).
 - Game world updates at a fixed 60 Hz (`tick`), drawing interpolates positions (`render`).
   Hit-stop freezes ticks only.

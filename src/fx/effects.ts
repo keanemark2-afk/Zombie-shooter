@@ -87,36 +87,101 @@ interface Shell {
   resting: boolean;
 }
 
+export type CasingKind = 'brass' | 'hull';
+
+/** A pool of spent casings that fly out, bounce and lie on the ground for a while. */
+class CasingPool {
+  readonly mesh: InstancedMesh;
+  private readonly shells: Shell[] = [];
+  private next = 0;
+
+  constructor(geometry: CylinderGeometry, material: MeshStandardMaterial, count: number, readonly kind: CasingKind) {
+    this.mesh = new InstancedMesh(geometry, material, count);
+    this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+    this.mesh.frustumCulled = false;
+    this.mesh.raycast = () => {};
+    this.mesh.castShadow = true;
+    for (let i = 0; i < count; i++) {
+      this.shells.push({ pos: new Vector3(), vel: new Vector3(), rot: new Euler(), spin: new Vector3(), age: 1e9, bounced: true, resting: true });
+      this.mesh.setMatrixAt(i, m.makeScale(0, 0, 0));
+    }
+  }
+
+  eject(at: Vector3, right: Vector3): void {
+    const s = this.shells[this.next];
+    this.next = (this.next + 1) % this.shells.length;
+    const heavy = this.kind === 'hull' ? 0.7 : 1;
+    s.pos.copy(at);
+    s.vel.copy(right).multiplyScalar((1.6 + Math.random() * 0.8) * heavy);
+    s.vel.y += (1.8 + Math.random() * 0.8) * heavy;
+    s.rot.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+    s.spin.set((Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40);
+    s.age = 0;
+    s.bounced = false;
+    s.resting = false;
+  }
+
+  update(dt: number, life: number, groundAt: (x: number, z: number) => number, onLand: (pos: Vector3, kind: CasingKind) => void): void {
+    this.shells.forEach((s, i) => {
+      if (s.age > life + 1) return;
+      s.age += dt;
+      if (!s.resting) {
+        s.vel.y -= 9.8 * dt;
+        s.pos.addScaledVector(s.vel, dt);
+        s.rot.x += s.spin.x * dt;
+        s.rot.y += s.spin.y * dt;
+        s.rot.z += s.spin.z * dt;
+        const ground = groundAt(s.pos.x, s.pos.z) + (this.kind === 'hull' ? 0.011 : 0.005);
+        if (s.pos.y < ground) {
+          s.pos.y = ground;
+          if (!s.bounced) {
+            s.bounced = true;
+            onLand(s.pos, this.kind);
+          }
+          if (Math.abs(s.vel.y) < 0.6) {
+            s.resting = true;
+            s.rot.set(Math.PI / 2, s.rot.y, 0);
+          } else {
+            s.vel.y *= -0.35;
+            s.vel.x *= 0.5;
+            s.vel.z *= 0.5;
+            s.spin.multiplyScalar(0.5);
+          }
+        }
+      }
+      const scale = s.age > life ? Math.max(0, 1 - (s.age - life)) : 1;
+      q.setFromEuler(e.copy(s.rot));
+      this.mesh.setMatrixAt(i, m.compose(s.pos, q, v.copy(one).multiplyScalar(scale)));
+    });
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
 /** All the visual "juice": blood, dust, sparks, bullet holes, casings, muzzle flash and the laser sight. */
 export class Effects {
   readonly smoke = new ParticleSystem(700);
   readonly glow = ParticleSystem.additive(300);
   readonly holes = new DecalPool('hole', 80);
   readonly bloodDecals = new DecalPool('blood', 48);
-  private readonly shellMesh: InstancedMesh;
-  private readonly shells: Shell[] = [];
-  private shellNext = 0;
+  private readonly casings: Record<CasingKind, CasingPool>;
   private readonly flash: Sprite;
   private readonly flashLight: PointLight;
   private flashTime = 0;
   private readonly laserBeam: Mesh;
   private readonly laserDot: Sprite;
-  /** Called when a casing first hits the ground (for its tinkle sound). */
-  onShellLand: ((pos: Vector3) => void) | null = null;
+  /** Called when a casing first hits the ground (for its tinkle or thunk sound). */
+  onShellLand: ((pos: Vector3, kind: CasingKind) => void) | null = null;
 
   constructor(scene: Scene) {
     scene.add(this.smoke.points, this.glow.points, this.holes.mesh, this.bloodDecals.mesh);
 
     const brass = new MeshStandardMaterial({ color: '#b08d45', metalness: 0.9, roughness: 0.35 });
-    this.shellMesh = new InstancedMesh(new CylinderGeometry(0.0048, 0.0048, 0.019, 6), brass, 40);
-    this.shellMesh.instanceMatrix.setUsage(DynamicDrawUsage);
-    this.shellMesh.frustumCulled = false;
-    this.shellMesh.raycast = () => {};
-    for (let i = 0; i < 40; i++) {
-      this.shells.push({ pos: new Vector3(), vel: new Vector3(), rot: new Euler(), spin: new Vector3(), age: 1e9, bounced: true, resting: true });
-      this.shellMesh.setMatrixAt(i, m.makeScale(0, 0, 0));
-    }
-    scene.add(this.shellMesh);
+    const hull = new MeshStandardMaterial({ color: '#8c1f18', roughness: 0.6 });
+    this.casings = {
+      brass: new CasingPool(new CylinderGeometry(0.0048, 0.0048, 0.019, 6), brass, 40, 'brass'),
+      hull: new CasingPool(new CylinderGeometry(0.0105, 0.0105, 0.068, 8), hull, 30, 'hull'),
+    };
+    scene.add(this.casings.brass.mesh, this.casings.hull.mesh);
 
     this.flash = new Sprite(new SpriteMaterial({ map: flashTexture(), blending: AdditiveBlending, depthWrite: false, transparent: true }));
     this.flash.visible = false;
@@ -175,17 +240,17 @@ export class Effects {
   }
 
   /** A bullet hitting the scenery: hole, dust puff, and sparks on metal or stone. */
-  surfaceImpact(point: Vector3, normal: Vector3, surface: Surface): void {
+  surfaceImpact(point: Vector3, normal: Vector3, surface: Surface, amount = 1): void {
     this.holes.add(point, normal, surface === 'dirt' || surface === 'straw' ? 0.09 : 0.06);
     color.set(SURFACE_DUST[surface]);
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < Math.max(2, Math.round(9 * amount)); i++) {
       v.copy(normal).multiplyScalar(0.6 + Math.random() * 1.6);
       v.x += (Math.random() - 0.5) * 1.2;
       v.y += Math.random() * 0.9;
       v.z += (Math.random() - 0.5) * 1.2;
       this.smoke.spawn({ position: point, velocity: v, life: 0.5 + Math.random() * 0.6, size: 0.05 + Math.random() * 0.06, grow: 3, color, alpha: 0.55, drag: 3, gravity: 0.15 });
     }
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < Math.max(1, Math.round(5 * amount)); i++) {
       v.copy(normal).multiplyScalar(1.5 + Math.random() * 2);
       v.x += (Math.random() - 0.5) * 2;
       v.y += Math.random() * 2;
@@ -204,16 +269,17 @@ export class Effects {
     }
   }
 
-  /** Muzzle flash, light and a puff of smoke at the gun barrel. */
-  muzzleFlash(at: Vector3, dir: Vector3): void {
-    const k = tuning.feel.muzzleFlash;
+  /** Muzzle flash, light and a puff of smoke at the gun barrel. `size` 1 = pistol. */
+  muzzleFlash(at: Vector3, dir: Vector3, size = 1): void {
+    const k = tuning.feel.muzzleFlash * size;
     if (k <= 0) return;
-    this.flash.position.copy(at).addScaledVector(dir, 0.04);
+    this.flash.position.copy(at).addScaledVector(dir, 0.04 * size);
     this.flash.scale.setScalar((0.22 + Math.random() * 0.12) * k);
     this.flash.material.rotation = Math.random() * Math.PI * 2;
     this.flash.visible = true;
     this.flashLight.position.copy(at).addScaledVector(dir, 0.15);
     this.flashLight.intensity = 18 * k;
+    this.flashLight.distance = 9 * Math.sqrt(size);
     this.flashTime = 0.055;
     color.set('#ffcf8a');
     for (let i = 0; i < 4; i++) {
@@ -225,25 +291,16 @@ export class Effects {
     }
     // A faint wisp of gun smoke.
     color.set('#3d3a36');
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < Math.round(2 * size); i++) {
       v.copy(dir).multiplyScalar(0.3 + Math.random() * 0.4);
       v.y += 0.25 + Math.random() * 0.25;
-      this.smoke.spawn({ position: at, velocity: v, life: 0.7, size: 0.04, grow: 4, color, alpha: 0.12, drag: 2 });
+      this.smoke.spawn({ position: at, velocity: v, life: 0.7, size: 0.04 * size, grow: 4, color, alpha: 0.12, drag: 2 });
     }
   }
 
-  /** Flicks a spent casing out of the ejection port. */
-  ejectShell(at: Vector3, right: Vector3): void {
-    const s = this.shells[this.shellNext];
-    this.shellNext = (this.shellNext + 1) % this.shells.length;
-    s.pos.copy(at);
-    s.vel.copy(right).multiplyScalar(1.6 + Math.random() * 0.8);
-    s.vel.y += 1.8 + Math.random() * 0.8;
-    s.rot.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
-    s.spin.set((Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40);
-    s.age = 0;
-    s.bounced = false;
-    s.resting = false;
+  /** Flicks a spent casing (or shotgun hull) out of the ejection port. */
+  ejectShell(at: Vector3, right: Vector3, kind: CasingKind = 'brass'): void {
+    this.casings[kind].eject(at, right);
   }
 
   /** Shows the laser from `start` to `end`. `dot` puts the red dot on whatever it hits. */
@@ -277,38 +334,8 @@ export class Effects {
       this.flashLight.intensity *= 0.6;
     }
 
-    const life = tuning.feel.shellLife;
-    this.shells.forEach((s, i) => {
-      if (s.age > life + 1) return;
-      s.age += dt;
-      if (!s.resting) {
-        s.vel.y -= 9.8 * dt;
-        s.pos.addScaledVector(s.vel, dt);
-        s.rot.x += s.spin.x * dt;
-        s.rot.y += s.spin.y * dt;
-        s.rot.z += s.spin.z * dt;
-        const ground = groundAt(s.pos.x, s.pos.z) + 0.005;
-        if (s.pos.y < ground) {
-          s.pos.y = ground;
-          if (!s.bounced) {
-            s.bounced = true;
-            this.onShellLand?.(s.pos);
-          }
-          if (Math.abs(s.vel.y) < 0.6) {
-            s.resting = true;
-            s.rot.set(Math.PI / 2, s.rot.y, 0);
-          } else {
-            s.vel.y *= -0.35;
-            s.vel.x *= 0.5;
-            s.vel.z *= 0.5;
-            s.spin.multiplyScalar(0.5);
-          }
-        }
-      }
-      const scale = s.age > life ? Math.max(0, 1 - (s.age - life)) : 1;
-      q.setFromEuler(e.copy(s.rot));
-      this.shellMesh.setMatrixAt(i, m.compose(s.pos, q, v.copy(one).multiplyScalar(scale)));
-    });
-    this.shellMesh.instanceMatrix.needsUpdate = true;
+    const land = (pos: Vector3, kind: CasingKind) => this.onShellLand?.(pos, kind);
+    this.casings.brass.update(dt, tuning.feel.shellLife, groundAt, land);
+    this.casings.hull.update(dt, tuning.feel.shellLife, groundAt, land);
   }
 }

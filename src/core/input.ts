@@ -9,6 +9,9 @@ export class Input {
   private readonly buttonsPressed = new Set<number>();
   private mouseDX = 0;
   private mouseDY = 0;
+  private wheel = 0;
+  private recentMove = 0;
+  private lockChangedAt = 0;
   /** True on frames where the keyboard or mouse was used. */
   active = false;
 
@@ -30,6 +33,11 @@ export class Input {
     window.addEventListener('mouseup', this.onMouseUp);
     window.addEventListener('mousemove', this.onMouseMove);
     target.addEventListener('contextmenu', (e) => e.preventDefault());
+    target.addEventListener('wheel', this.onWheel, { passive: false });
+    document.addEventListener('pointerlockchange', () => {
+      this.lockChangedAt = performance.now();
+      this.recentMove = 0;
+    });
   }
 
   isDown(code: string): boolean {
@@ -67,11 +75,21 @@ export class Input {
   /** Captures the mouse so moving it turns the camera. Safe to call any time. */
   lockPointer(): void {
     if (this.pointerLocked) return;
+    const plain = () => {
+      try {
+        const r = this.target.requestPointerLock() as unknown;
+        if (r instanceof Promise) r.catch(() => {});
+      } catch {
+        // Some browsers refuse without a click; the menu asks the player to click.
+      }
+    };
     try {
-      const result = this.target.requestPointerLock() as unknown;
-      if (result instanceof Promise) result.catch(() => {});
+      // Raw mouse movement: no Windows mouse acceleration, and far fewer of the
+      // browser's sudden fake jumps. Falls back if the browser can't do it.
+      const r = this.target.requestPointerLock({ unadjustedMovement: true }) as unknown;
+      if (r instanceof Promise) r.catch(plain);
     } catch {
-      // Some browsers refuse without a click; the menu asks the player to click.
+      plain();
     }
   }
 
@@ -85,6 +103,13 @@ export class Input {
     this.mouseDX = 0;
     this.mouseDY = 0;
     return d;
+  }
+
+  /** Mouse wheel clicks since the last call: +1 per notch down, -1 per notch up. */
+  takeWheel(): number {
+    const w = this.wheel;
+    this.wheel = 0;
+    return w;
   }
 
   /** Call at the very end of each frame. */
@@ -123,9 +148,22 @@ export class Input {
   };
 
   private readonly onMouseMove = (e: MouseEvent): void => {
+    const size = Math.hypot(e.movementX, e.movementY);
+    // Right after the mouse is captured the browser can report one wild jump.
+    if (performance.now() - this.lockChangedAt < 120) return;
+    // Browsers on Windows occasionally report a single huge, fake movement
+    // (it spins the camera). Real hand movement ramps up, so ignore lone spikes.
+    if (size > 350 && size > this.recentMove * 8) return;
+    this.recentMove = this.recentMove * 0.75 + size * 0.25;
     this.mouseDX += e.movementX;
     this.mouseDY += e.movementY;
-    if (e.movementX || e.movementY) this.active = true;
+    if (size) this.active = true;
+  };
+
+  private readonly onWheel = (e: WheelEvent): void => {
+    e.preventDefault();
+    if (e.deltaY !== 0) this.wheel += Math.sign(e.deltaY);
+    this.active = true;
   };
 }
 

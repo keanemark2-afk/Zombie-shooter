@@ -155,15 +155,58 @@ test('shooting range: aiming, reactions, reload and respawn', async ({ page }) =
   await expect.poll(async () => (await state(page)).reloading, { timeout: 60_000 }).toBe(true);
   await expect.poll(async () => (await state(page)).ammo, { timeout: 120_000 }).toBe(10);
 
-  // Quick turn: hold back and tap sprint; the camera swings round.
+  // Quick turn: from standing (facing away from the camera), back + sprint swings round.
   const yawBefore = (await state(page)).cameraYaw;
   await page.keyboard.down('KeyS');
-  await waitForFrames(page, 1);
   await page.keyboard.press('ShiftLeft');
   await waitForFrames(page, 6);
   await page.keyboard.up('KeyS');
   const turned = Math.abs((await state(page)).cameraYaw - yawBefore);
   expect(turned, 'quick turn should swing the camera about 180 degrees').toBeGreaterThan(2.5);
+  await waitForFrames(page, 4);
+
+  // But running back towards the camera and then sprinting must NOT spin you round.
+  const yawRunning = (await state(page)).cameraYaw;
+  await page.keyboard.down('KeyS');
+  await waitForFrames(page, 8);
+  await page.keyboard.down('ShiftLeft');
+  await waitForFrames(page, 6);
+  await page.keyboard.up('ShiftLeft');
+  await page.keyboard.up('KeyS');
+  const drift = Math.abs((await state(page)).cameraYaw - yawRunning);
+  expect(drift, 'sprinting while running back should not quick-turn').toBeLessThan(0.3);
+
+  // Shotgun: restart the range with three dummies close together, then key 2
+  // swaps to the pump shotgun and a close blast knocks them flat.
+  await page.evaluate(() => {
+    const t = window.__deadAcre!.tuning;
+    t.range.dummyCount = 3;
+    t.range.dummyDistance = 2.5;
+    t.range.dummyRespawnDelay = 0;
+    window.__deadAcre!.start('range');
+  });
+  await waitForFrames(page, 2);
+  await page.keyboard.press('Digit2');
+  await expect.poll(async () => (await state(page)).weapon, { timeout: 60_000 }).toBe('pump');
+  await expect.poll(async () => (await state(page)).zombies.filter((z) => z.alive).length, { timeout: 120_000 }).toBe(3);
+  await waitForFrames(page, 4);
+  s = await shootAt(page, 'torso');
+  expect(s.stats.lastHit).toContain('pellets');
+  // A close blast bowls over the whole group, not just the one in the middle.
+  await expect
+    .poll(async () => (await state(page)).zombies.filter((z) => ['knockdown', 'downBack'].includes(z.state) || !z.alive).length, { timeout: 30_000 })
+    .toBeGreaterThanOrEqual(2);
+  await page.screenshot({ path: 'test-results/smoke-shotgun.png' });
+
+  // Shell-by-shell reload.
+  const shells = (await state(page)).ammo;
+  expect(shells).toBe(5);
+  await page.keyboard.press('KeyR');
+  await expect.poll(async () => (await state(page)).ammo, { timeout: 120_000 }).toBe(6);
+
+  // Key 3: the drum shotgun.
+  await page.keyboard.press('Digit3');
+  await expect.poll(async () => (await state(page)).weapon, { timeout: 60_000 }).toBe('drum');
 
   await expect(page.locator('.error-overlay')).toHaveCount(0);
   expect(errors, 'the browser logged errors').toEqual([]);
@@ -196,6 +239,10 @@ test('village, gamepad, menu and tuning panel for ~30 seconds', async ({ page, c
   await padButton(page, 6, 0);
   expect((await state(page)).stats.shots).toBe(1);
   expect((await state(page)).lastDevice).toBe('gamepad');
+
+  // D-pad right swaps to the next weapon.
+  await padTap(page, 15);
+  await expect.poll(async () => (await state(page)).weapon, { timeout: 60_000 }).toBe('pump');
 
   // Left stick walks.
   const before = (await state(page)).player;

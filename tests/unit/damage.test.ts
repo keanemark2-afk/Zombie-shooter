@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveHit, zoneGroup, type DamageRules, type TargetState } from '../../src/combat/damage';
+import { resolveHit, resolveShot, zoneGroup, type DamageRules, type PelletHit, type TargetState } from '../../src/combat/damage';
 
 const rules: DamageRules = {
   damage: { head: 2.5, torso: 1, arm: 0.6, leg: 0.75 },
@@ -10,6 +10,7 @@ const rules: DamageRules = {
     legKneelChance: 1,
     kneelSpinChance: 0.25,
     knockbackThreshold: 0.6,
+    knockdownThreshold: 1.6,
   },
 };
 
@@ -115,5 +116,53 @@ describe('torso reactions', () => {
 
   it('a powerful gun shoves it back', () => {
     expect(resolveHit('torso', { damage: 300, knockback: 1.2 }, zombie(), 1, rules).reaction).toBe('knockback');
+  });
+});
+
+describe('shotgun blasts (several pellets at once)', () => {
+  const pellet = (zone: PelletHit['zone'], damage = 40, knockback = 0.3): PelletHit => ({ zone, damage, knockback });
+
+  it('adds up damage from every pellet, with body-part multipliers', () => {
+    const hit = resolveShot([pellet('torso'), pellet('torso'), pellet('legL')], zombie(), 1, rules);
+    expect(hit.damage).toBeCloseTo(40 + 40 + 30, 5);
+    expect(hit.pellets).toBe(3);
+    expect(hit.zones.sort()).toEqual(['legL', 'torso']);
+  });
+
+  it('a close blast knocks the zombie off its feet', () => {
+    const blast = Array.from({ length: 7 }, () => pellet('torso', 20, 0.3)); // push 2.1
+    const hit = resolveShot(blast, zombie({ health: 1000 }), 1, rules);
+    expect(hit.reaction).toBe('knockdown');
+    expect(hit.knockback).toBeCloseTo(2.1, 5);
+  });
+
+  it('a few stray pellets only shove it', () => {
+    const hit = resolveShot([pellet('torso', 20, 0.3), pellet('torso', 20, 0.3), pellet('torso', 20, 0.3)], zombie(), 1, rules);
+    expect(hit.reaction).toBe('knockback');
+  });
+
+  it('knockdown beats a headshot stagger, but a pellet in the head staggers otherwise', () => {
+    const big = [pellet('head', 10, 1), pellet('torso', 10, 1)];
+    expect(resolveShot(big, zombie(), 1, rules).reaction).toBe('knockdown');
+    const small = [pellet('head', 10, 0.1), pellet('torso', 10, 0.1), pellet('torso', 10, 0.1)];
+    const hit = resolveShot(small, zombie(), 1, rules);
+    expect(hit.zone).toBe('head');
+    expect(hit.reaction).toBe('headStagger');
+  });
+
+  it('a zombie already on the ground is not knocked down again', () => {
+    const blast = Array.from({ length: 8 }, () => pellet('torso', 10, 0.3));
+    expect(resolveShot(blast, zombie({ downed: true }), 1, rules).reaction).toBe('none');
+  });
+
+  it('any pellet in an arm knocks its tool loose', () => {
+    const hit = resolveShot([pellet('torso', 10, 0.1), pellet('armL', 10, 0.1)], zombie({ holdingWeapon: true }), 1, rules);
+    expect(hit.dropWeapon).toBe(true);
+  });
+
+  it('a single bullet gives the same result as before', () => {
+    const one = resolveShot([pellet('legR', 100, 0.15)], zombie(), 1, rules, () => 0.999);
+    const old = resolveHit('legR', { damage: 100, knockback: 0.15 }, zombie(), 1, rules, () => 0.999);
+    expect(one).toEqual(old);
   });
 });

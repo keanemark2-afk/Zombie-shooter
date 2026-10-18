@@ -25,6 +25,17 @@ export class ShoulderCamera {
   private shakeTime = 0;
   /** How far the camera ended up from its pivot (small = squeezed against a wall). */
   distance = 0;
+  /** Where the over-the-shoulder view is (the real camera may be elsewhere in debug views). */
+  readonly eye = new Vector3();
+  /** How quickly recoil settles (set from the gun in your hands). */
+  recoilRecovery = 9;
+  // Room left by walls, eased back out after a wall stops pushing in (no popping).
+  private roomBehind = 10;
+  private roomSide = 10;
+  // Quick 180-degree turn, played smoothly every drawn frame.
+  private turnLeft = 0;
+  private turnTotal = 1;
+  private turnDone = 0;
 
   constructor(readonly camera: PerspectiveCamera) {}
 
@@ -33,6 +44,17 @@ export class ShoulderCamera {
     this.yaw += dYaw;
     const c = tuning.camera;
     this.pitch = MathUtils.clamp(this.pitch + dPitch, -MathUtils.degToRad(c.lookDownLimit), MathUtils.degToRad(c.lookUpLimit));
+  }
+
+  /** Swings the camera round 180 degrees over `seconds` (mouse turning still works meanwhile). */
+  startQuickTurn(seconds: number): void {
+    this.turnTotal = Math.max(0.01, seconds);
+    this.turnLeft = this.turnTotal;
+    this.turnDone = 0;
+  }
+
+  get quickTurning(): boolean {
+    return this.turnLeft > 0;
   }
 
   /** Recoil from a shot: aim jumps up (and a little sideways), then settles back. */
@@ -59,7 +81,15 @@ export class ShoulderCamera {
     this.aimBlend = MathUtils.clamp(this.aimBlend + (aiming ? 1 : -1) * blendSpeed * dt, 0, 1);
     const a = this.aimBlend * this.aimBlend * (3 - 2 * this.aimBlend);
 
-    const settle = Math.exp(-tuning.pistol.recoilRecovery * dt);
+    if (this.turnLeft > 0) {
+      this.turnLeft = Math.max(0, this.turnLeft - dt);
+      const u = 1 - this.turnLeft / this.turnTotal;
+      const turned = Math.PI * u * u * (3 - 2 * u);
+      this.yaw += turned - this.turnDone;
+      this.turnDone = turned;
+    }
+
+    const settle = Math.exp(-this.recoilRecovery * dt);
     this.recoilPitch *= settle;
     this.recoilYaw *= settle;
 
@@ -75,23 +105,34 @@ export class ShoulderCamera {
     right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     head.set(playerPos.x, playerPos.y + height, playerPos.z);
 
+    // Walls push the camera in instantly (so they never block the view) and
+    // release it gently (so it doesn't jump about).
+    const ease = 1 - Math.exp(-c.wallEaseOut * dt);
+    const settleRoom = (current: number, room: number, cap: number) =>
+      room < current ? room : current + (Math.min(room, cap) - current) * ease;
+
     // Keep the shoulder offset itself out of walls.
-    let side = offset;
+    let sideRoom = 10;
     if (Math.abs(offset) > 0.01) {
       dir.copy(right).multiplyScalar(Math.sign(offset));
       const hit = world.raycast(head, dir, Math.abs(offset) + c.wallPadding);
-      if (hit) side = Math.sign(offset) * Math.max(0, hit.distance - c.wallPadding);
+      if (hit) sideRoom = Math.max(0, hit.distance - c.wallPadding);
     }
+    this.roomSide = settleRoom(this.roomSide, sideRoom, Math.abs(offset) + 0.5);
+    const side = Math.sign(offset) * Math.min(Math.abs(offset), this.roomSide);
     pivot.copy(head).addScaledVector(right, side);
 
     // Pull the camera in if something is between it and the player.
     const look = this.aimDirection(dir);
     desired.copy(look).negate();
-    let dist = distance;
+    let behindRoom = 10;
     const hit = world.raycast(pivot, desired, distance + c.wallPadding);
-    if (hit) dist = Math.max(0.12, hit.distance - c.wallPadding);
+    if (hit) behindRoom = Math.max(0.12, hit.distance - c.wallPadding);
+    this.roomBehind = settleRoom(this.roomBehind, behindRoom, distance + 0.5);
+    const dist = Math.max(0.12, Math.min(distance, this.roomBehind));
     this.distance = dist;
-    this.camera.position.copy(pivot).addScaledVector(desired, dist);
+    this.eye.copy(pivot).addScaledVector(desired, dist);
+    this.camera.position.copy(this.eye);
 
     // Shake: trauma squared feels natural (small hits barely shake).
     this.trauma = Math.max(0, this.trauma - dt * 1.8);

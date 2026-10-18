@@ -4,7 +4,7 @@ An over-the-shoulder zombie arena shooter that plays like the classic survival-h
 action games: tight pistol gunplay, body-part hit reactions, kicks and suplexes,
 a trader between waves, and a score-attack mode. No story, just the fighting.
 
-**Status:** Phase 1 of 7 (gunfeel: the pistol, one zombie type, a shooting range). See `PROGRESS.md`.
+**Status:** Phase 1 of 7 (gunfeel: a pistol, two shotguns, one zombie type, a shooting range). See `PROGRESS.md`.
 
 ## How to play (Windows)
 
@@ -22,6 +22,7 @@ If Node.js is missing, the launcher tells you exactly what to install.
 | Aim (laser sight) | Hold right mouse | Hold L2 | Hold LT |
 | Shoot (while aiming) | Left mouse | R2 | RT |
 | Reload | R | Square | X |
+| Switch weapon | 1 2 3 / mouse wheel | D-pad left / right | D-pad left / right |
 | Sprint | Hold Shift | Hold Cross | Hold A |
 | Quick 180 turn | Hold S + tap Shift | Down + Cross | Down + A |
 | Menu / pause | Esc | Options | Menu |

@@ -20,6 +20,10 @@ export class Hud {
   private readonly reloadFill: HTMLDivElement;
   private readonly stats: HTMLDivElement;
   private readonly hint: HTMLDivElement;
+  private readonly weaponName: HTMLDivElement;
+  private readonly strip: HTMLDivElement;
+  private stripTimer = 0;
+  private stripKey = '';
   private markerTimer = 0;
   private hurtLevel = 0;
 
@@ -30,6 +34,7 @@ export class Hud {
       <div class="hurt-flash"></div>
       <div class="reticle"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
       <div class="hit-marker"><i></i><i></i></div>
+      <div class="weapon-strip"></div>
       <div class="ammo">
         <div class="weapon-name">KESTREL 9</div>
         <div class="ammo-count"><span class="loaded">10</span><span class="spare">/ &infin;</span></div>
@@ -48,6 +53,8 @@ export class Hud {
     this.reloadFill = q('.reload-fill');
     this.stats = q('.range-stats');
     this.hint = q('.play-hint');
+    this.weaponName = q('.weapon-name');
+    this.strip = q('.weapon-strip');
     this.root.hidden = true;
   }
 
@@ -74,6 +81,22 @@ export class Hud {
     this.ammoSpare.innerHTML = spare === null ? '/ &infin;' : `/ ${spare}`;
     this.reloadBar.style.visibility = reloadProgress === null ? 'hidden' : 'visible';
     if (reloadProgress !== null) this.reloadFill.style.width = `${Math.min(100, reloadProgress * 100)}%`;
+  }
+
+  setWeaponName(name: string): void {
+    if (this.weaponName.textContent !== name) this.weaponName.textContent = name;
+  }
+
+  /** Briefly lists your weapons with the chosen one highlighted (after a swap). */
+  showWeapons(slots: Array<{ slot: number; name: string }>, selected: number): void {
+    const key = `${selected}`;
+    if (key !== this.stripKey) {
+      this.stripKey = key;
+      this.strip.innerHTML = slots
+        .map((w, i) => `<div class="${i === selected ? 'on' : ''}"><span>${w.slot}</span>${w.name}</div>`)
+        .join('');
+    }
+    this.stripTimer = 2.2;
   }
 
   hitMarker(zone: ZoneGroup, killed: boolean, seconds: number): void {
@@ -106,6 +129,8 @@ export class Hud {
   }
 
   update(dt: number): void {
+    this.stripTimer -= dt;
+    this.strip.classList.toggle('visible', this.stripTimer > 0);
     this.markerTimer -= dt;
     if (this.markerTimer <= 0) this.marker.classList.remove('show');
     this.hurtLevel = Math.max(0, this.hurtLevel - dt * 1.6);

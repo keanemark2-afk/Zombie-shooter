@@ -18,6 +18,8 @@ export type ZombieState =
   | 'kneel'
   | 'trip'
   | 'down'
+  | 'knockdown'
+  | 'downBack'
   | 'getUp'
   | 'armFlinch'
   | 'dying'
@@ -102,6 +104,8 @@ export class Zombie {
   private spinTo = 0;
   private spinning = false;
   private fallDir = 1;
+  /** What a get-up animation starts from. */
+  private riseFrom: 'kneel' | 'front' | 'back' = 'front';
   private fallRoll = 0;
   private flinchArm: 'L' | 'R' = 'R';
   private swingConnected = false;
@@ -184,7 +188,7 @@ export class Zombie {
       health: this.health,
       invincible: this.invincible,
       running: this.state === 'run',
-      downed: this.state === 'trip' || this.state === 'down',
+      downed: this.state === 'trip' || this.state === 'down' || this.state === 'knockdown' || this.state === 'downBack',
       holdingWeapon: this.tool !== null,
       windingUpThrow: false,
     };
@@ -194,7 +198,7 @@ export class Zombie {
   get openTo(): 'head' | 'kneel' | 'down' | null {
     if (this.state === 'headStagger') return 'head';
     if (this.state === 'kneel') return 'kneel';
-    if (this.state === 'down') return 'down';
+    if (this.state === 'down' || this.state === 'downBack') return 'down';
     return null;
   }
 
@@ -223,7 +227,8 @@ export class Zombie {
     this.kickFor(hit.zone, away, side);
 
     if (hit.dropWeapon) this.dropTool(dir, host);
-    if (hit.knockback > 0) this.knock.addScaledVector(tmp.set(dir.x, 0, dir.z).normalize(), hit.knockback * 6);
+    // Shoved back about `knockback` metres (a big blast is capped so it can't fly too far).
+    if (hit.knockback > 0) this.knock.addScaledVector(tmp.set(dir.x, 0, dir.z).normalize(), Math.min(hit.knockback, 2.2) * 6);
 
     const r = tuning.reactions;
     switch (hit.reaction) {
@@ -249,6 +254,12 @@ export class Zombie {
       case 'trip':
         this.setState('trip', 0.45);
         voice.grunt(this.chestPosition(tmp), this.voicePitch * 1.05);
+        break;
+      case 'knockdown':
+        // Blown off its feet onto its back.
+        this.fallRoll = (this.rand() - 0.5) * 0.5;
+        this.setState('knockdown', 0.55);
+        voice.grunt(this.chestPosition(tmp), this.voicePitch * 1.1);
         break;
       case 'armFlinch':
         this.flinchArm = hit.zone === 'armL' ? 'L' : 'R';
@@ -367,6 +378,7 @@ export class Zombie {
         }
         if (this.stateTime >= this.stateDuration) {
           this.spinning = false;
+          this.riseFrom = 'kneel';
           this.setState('getUp', 0.5);
         }
         break;
@@ -380,7 +392,22 @@ export class Zombie {
         }
         break;
       case 'down':
-        if (this.stateTime >= this.stateDuration) this.setState('getUp', r.getUpTime);
+        if (this.stateTime >= this.stateDuration) {
+          this.riseFrom = 'front';
+          this.setState('getUp', r.getUpTime);
+        }
+        break;
+      case 'knockdown':
+        if (this.stateTime >= this.stateDuration) {
+          this.setState('downBack', r.knockdownTime);
+          host.voice.bodyFall(this.position);
+        }
+        break;
+      case 'downBack':
+        if (this.stateTime >= this.stateDuration) {
+          this.riseFrom = 'back';
+          this.setState('getUp', r.getUpTime);
+        }
         break;
       case 'getUp':
         if (this.stateTime >= this.stateDuration) this.resumeDefault();
@@ -439,9 +466,10 @@ export class Zombie {
     }
 
     const pose = this.pose(this.stateTime);
-    const snappy = this.state === 'headStagger' || this.state === 'armFlinch' || this.state === 'swing' || this.state === 'trip';
+    const snappy = this.state === 'headStagger' || this.state === 'armFlinch' || this.state === 'swing' || this.state === 'trip' || this.state === 'knockdown';
     const rate = snappy ? 16 : this.state === 'dying' ? 14 : this.state === 'getUp' ? 5 : 9;
-    const bodyRate = this.state === 'dying' || this.state === 'trip' || this.state === 'dead' || this.state === 'down' ? 30 : rate;
+    const falling = ['dying', 'dead', 'trip', 'down', 'knockdown', 'downBack'].includes(this.state);
+    const bodyRate = falling ? 30 : rate;
     this.blender.update(pose, dt, rate, bodyRate);
     this.syncTransform();
   }
@@ -684,14 +712,46 @@ export class Zombie {
         break;
       }
 
+      case 'knockdown':
+      case 'downBack': {
+        // Blown backwards off its feet, landing flat on its back.
+        const u = this.state === 'knockdown' ? easeIn(Math.min(1, t / this.stateDuration)) : 1;
+        const twitch = this.state === 'downBack' ? Math.sin(t * 11) * 0.05 * Math.max(0, 1 - t) : 0;
+        pose.bodyPitch = 1.5 * u;
+        pose.bodyRoll = this.fallRoll * u;
+        pose.bodyLift = 0.13 * u;
+        j.spine = [0.15 * (1 - u), 0, 0];
+        j.neck = [-0.2 * u, 0, 0];
+        j.head = [-0.15 * u, 0, 0.5 * u + twitch];
+        // Arms fly up as it goes over, then flop out to the sides.
+        j.shoulderL = [1.8 * (1 - u) + 0.4 * u, 0, -0.3 - 1.0 * u];
+        j.shoulderR = [1.8 * (1 - u) + 0.3 * u, 0, 0.3 + 1.1 * u];
+        j.elbowL = [0.5, 0, 0];
+        j.elbowR = [0.3, 0, 0];
+        j.hipL = [0.6 * Math.sin(u * Math.PI) + 0.1, 0, -0.12];
+        j.hipR = [0.4 * Math.sin(u * Math.PI), 0, 0.1];
+        j.kneeL = [-0.4, 0, 0];
+        j.kneeR = [-0.15, 0, 0];
+        break;
+      }
+
       case 'getUp': {
-        // Pushes itself back up, stiffly.
+        if (this.riseFrom === 'kneel') {
+          // Just stands back up from one knee (the blender eases it).
+          j.spine = [-hunch - 0.1, 0, 0];
+          j.head = [0.12, 0, 0.1];
+          arms(0.6, 0.2);
+          pose.hipsY = -0.12;
+          break;
+        }
+        // Pushes itself back up, stiffly (from its front or its back).
         const u = Math.min(1, t / Math.max(0.01, this.stateDuration));
         const lying = 1 - u;
-        pose.bodyPitch = -1.5 * lying * lying;
+        const side = this.riseFrom === 'back' ? 1 : -1;
+        pose.bodyPitch = side * 1.5 * lying * lying;
         pose.bodyLift = 0.13 * lying;
         pose.hipsY = -0.35 * Math.sin(u * Math.PI);
-        j.spine = [-0.6 * Math.sin(u * Math.PI) - hunch * u, 0, 0];
+        j.spine = [(this.riseFrom === 'back' ? -0.9 : -0.6) * Math.sin(u * Math.PI) - hunch * u, 0, 0];
         j.shoulderL = [1.2 * lying + 0.3, 0, 0];
         j.shoulderR = [1.2 * lying + 0.3, 0, 0];
         j.elbowL = [0.6, 0, 0];

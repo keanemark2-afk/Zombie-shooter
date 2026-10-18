@@ -19,7 +19,7 @@ declare global {
       start: (mode: LevelId) => void;
       state: () => ReturnType<Game['debugState']>;
       aimAt: (zone: Zone) => boolean;
-      view: (from: [number, number, number] | null, to?: [number, number, number]) => void;
+      view: (from: [number, number, number] | null, to?: [number, number, number], keepControls?: boolean) => void;
     };
   }
 }
@@ -68,6 +68,6 @@ if (!webglAvailable()) {
     start: (mode) => game.startMode(mode),
     state: () => game.debugState(),
     aimAt: (zone) => game.debugAimAt(zone),
-    view: (from, to) => game.debugView(from ? new Vector3(...from) : null, to ? new Vector3(...to) : null),
+    view: (from, to, keepControls) => game.debugView(from ? new Vector3(...from) : null, to ? new Vector3(...to) : null, keepControls),
   };
 }

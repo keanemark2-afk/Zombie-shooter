@@ -17,7 +17,7 @@ export class Menu {
     this.root.innerHTML = `
       <div class="menu-panel">
         <h1>DEAD ACRE</h1>
-        <div class="menu-sub">Phase 1 &middot; Gunfeel test</div>
+        <div class="menu-sub">Phase 1 &middot; Gunfeel test &middot; now with shotguns</div>
         <div class="menu-buttons">
           <button type="button" data-choice="resume" class="resume">Resume</button>
           <button type="button" data-choice="range">Shooting range</button>
@@ -66,6 +66,7 @@ export class Menu {
       ['Aim (laser sight)', 'Hold right mouse', `Hold ${pad(bindings.aim.pad!)}`],
       ['Shoot (while aiming)', 'Left mouse', pad(bindings.fire.pad!)],
       ['Reload', 'R', pad(bindings.reload.pad!)],
+      ['Switch weapon', '1 2 3 or mouse wheel', `${pad(bindings.prevWeapon.pad!)} / ${pad(bindings.nextWeapon.pad!)}`],
       ['Sprint', 'Hold Shift', `Hold ${pad(bindings.sprint.pad!)}`],
       ['Quick 180&deg; turn', 'Hold S + tap Shift', `Down + ${pad(bindings.sprint.pad!)}`],
       ['Menu / pause', 'Esc', pad(PAD.start)],

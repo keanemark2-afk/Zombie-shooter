@@ -14,7 +14,9 @@ import {
 } from 'three';
 import { Sfx } from '../audio/sfx';
 import { FallingProp } from '../characters/handheld';
-import { resolveHit, zoneGroup, type HitResult, type Zone } from '../combat/damage';
+import { resolveShot, zoneGroup, type HitResult, type PelletHit, type Zone } from '../combat/damage';
+import { blastPush, falloff, randomInCone } from '../combat/pellets';
+import { WEAPONS } from '../combat/weapons';
 import { PAD } from '../config/controls';
 import { tuning } from '../config/tuning';
 import { showError } from '../debug/errorOverlay';
@@ -55,15 +57,23 @@ function describeHit(hit: HitResult): string {
     kneel: hit.spin ? 'dropped to one knee and spun round' : 'dropped to one knee',
     trip: 'TRIPPED and fell flat',
     armFlinch: hit.dropWeapon ? 'arm knocked back, DROPPED its tool' : 'arm knocked back',
+    knockdown: 'KNOCKED DOWN',
     death: hit.overkill > 0 ? `KILLED (overkill ${Math.round(hit.overkill)})` : 'KILLED',
   };
-  return `${ZONE_NAMES[hit.zone]} · ${Math.round(hit.damage)} damage · ${reactions[hit.reaction]}`;
+  const where = hit.pellets > 1 ? `${ZONE_NAMES[hit.zone]} · ${hit.pellets} pellets` : ZONE_NAMES[hit.zone];
+  return `${where} · ${Math.round(hit.damage)} damage · ${reactions[hit.reaction]}`;
 }
 
 interface AimResult {
   /** Where the camera's aim (with wobble) lands. */
   point: Vector3;
   direction: Vector3;
+}
+
+/** Angle between two directions seen from above (ignoring up/down), in radians. */
+function angleBetweenFlat(a: Vector3, b: Vector3): number {
+  const d = Math.atan2(a.x, a.z) - Math.atan2(b.x, b.z);
+  return Math.atan2(Math.sin(d), Math.cos(d));
 }
 
 /** Removes a dropped prop from the scene and frees its shapes (materials are shared). */
@@ -113,9 +123,14 @@ export class Game {
   private respawnTimer = 0;
   private zombieSeed = 1;
   private freeCam = false;
+  /** Debug: keep the player's controls working while the free camera looks on. */
+  private freeCamControls = false;
   private releasingMouse = false;
   private hitboxView = false;
   private lastDummyDistance = tuning.range.dummyDistance;
+  /** Which side-by-side spot each range dummy stands on. */
+  private readonly dummySlots = new Map<Zombie, number>();
+  private lastWeapon = -1;
   private aim: AimResult = { point: new Vector3(), direction: new Vector3(0, 0, -1) };
 
   mode: LevelId | null = null;
@@ -139,7 +154,7 @@ export class Game {
     this.camera = new PerspectiveCamera(tuning.camera.fov, 1, 0.05, 1500);
     this.world = new World(this.scene);
     this.fx = new Effects(this.scene);
-    this.fx.onShellLand = (pos) => this.sfx.shellLand(pos);
+    this.fx.onShellLand = (pos, kind) => this.sfx.shellLand(pos, kind);
     this.player = new Player();
     this.scene.add(this.player.object);
     this.cam = new ShoulderCamera(this.camera);
@@ -169,7 +184,13 @@ export class Game {
     this.playerHost = {
       fire: () => this.fireShot(),
       dryFire: () => this.sfx.dryFire(),
-      reloadStep: (step) => this.sfx.reloadStep(step),
+      gunEvent: (e) => {
+        if (e === 'eject') {
+          this.player.ejectionWorld(tmp);
+          this.fx.ejectShell(tmp, tmp2.set(Math.cos(this.cam.yaw), 0, -Math.sin(this.cam.yaw)), this.player.def.casing);
+        }
+        this.sfx.gunEvent(e);
+      },
       footstep: (_pos, sprinting) => this.sfx.footstep(sprinting),
     };
 
@@ -229,7 +250,9 @@ export class Game {
       this.colliderLines.removeFromParent();
       this.colliderLines = null;
     }
-    if (id === 'range') this.spawnDummy();
+    this.dummySlots.clear();
+    this.lastWeapon = -1;
+    if (id === 'range') this.spawnMissingDummies();
     else for (let i = 0; i < tuning.village.zombieCount; i++) this.spawnVillageZombie();
     this.resume();
   }
@@ -268,14 +291,30 @@ export class Game {
     return tuning.range.dummyBehavior as ZombieBehavior;
   }
 
-  private spawnDummy(): void {
+  /** Side-by-side spots for range dummies: middle first, then alternating left and right. */
+  private dummyX(slot: number): number {
+    return (slot % 2 === 1 ? -1 : 1) * Math.ceil(slot / 2) * 0.9;
+  }
+
+  private dummyCount(): number {
+    return MathUtils.clamp(Math.round(tuning.range.dummyCount), 1, 6);
+  }
+
+  /** Fills every empty dummy spot on the range. */
+  private spawnMissingDummies(): void {
     const d = tuning.range.dummyDistance;
-    const z = new Zombie(this.zombieSeed++, 0, rangeZ(d), 0, this.dummyBehavior(), {
-      holdsTool: tuning.range.dummyHoldsWeapon,
-      invincible: tuning.range.dummyInvincible,
-    });
+    const taken = new Set<number>();
+    for (const [z, slot] of this.dummySlots) if (z.alive) taken.add(slot);
+    for (let slot = 0; slot < this.dummyCount(); slot++) {
+      if (taken.has(slot)) continue;
+      const z = new Zombie(this.zombieSeed++, this.dummyX(slot), rangeZ(d), 0, this.dummyBehavior(), {
+        holdsTool: tuning.range.dummyHoldsWeapon,
+        invincible: tuning.range.dummyInvincible,
+      });
+      this.dummySlots.set(z, slot);
+      this.addZombie(z);
+    }
     this.lastDummyDistance = d;
-    this.addZombie(z);
   }
 
   private spawnVillageZombie(): void {
@@ -296,6 +335,7 @@ export class Game {
   private removeZombie(z: Zombie): void {
     z.object.removeFromParent();
     z.dispose();
+    this.dummySlots.delete(z);
   }
 
   private manageZombies(dt: number): void {
@@ -307,21 +347,29 @@ export class Game {
     }
     const alive = this.zombies.filter((z) => z.alive);
     if (this.mode === 'range') {
-      const dummy = alive[0];
-      if (dummy) {
-        dummy.invincible = tuning.range.dummyInvincible;
-        dummy.behavior = this.dummyBehavior();
-        const d = tuning.range.dummyDistance;
-        if (Math.abs(d - this.lastDummyDistance) > 0.25) {
-          this.lastDummyDistance = d;
-          dummy.teleport(0, rangeZ(d), 0);
+      const d = tuning.range.dummyDistance;
+      const moved = Math.abs(d - this.lastDummyDistance) > 0.25;
+      if (moved) this.lastDummyDistance = d;
+      for (const z of alive) {
+        const slot = this.dummySlots.get(z) ?? 0;
+        if (slot >= this.dummyCount()) {
+          // Fewer dummies wanted: the extra ones vanish.
+          z.removed = true;
+          continue;
         }
-      } else {
+        z.invincible = tuning.range.dummyInvincible;
+        z.behavior = this.dummyBehavior();
+        if (moved) z.teleport(this.dummyX(slot), rangeZ(d), 0);
+      }
+      const living = alive.filter((z) => !z.removed).length;
+      if (living < this.dummyCount()) {
         this.respawnTimer += dt;
         if (this.respawnTimer >= tuning.range.dummyRespawnDelay) {
           this.respawnTimer = 0;
-          this.spawnDummy();
+          this.spawnMissingDummies();
         }
+      } else {
+        this.respawnTimer = 0;
       }
     } else if (this.mode === 'village') {
       if (alive.length < tuning.village.zombieCount) {
@@ -362,11 +410,11 @@ export class Game {
   /** Where the camera's aim lands right now (this is what the laser dot and arms point at). */
   private computeAim(): AimResult {
     const dir = this.player.laserDirection(this.cam, this.aim.direction);
-    const camPos = this.camera.position;
+    const camPos = this.cam.eye;
     // Start the ray level with the player so nothing behind them gets in the way.
     tmp.set(this.player.position.x, this.player.position.y + 1.5, this.player.position.z).sub(camPos);
     const start = tmp2.copy(camPos).addScaledVector(dir, Math.max(0, tmp.dot(dir)));
-    const range = tuning.pistol.maxRange;
+    const range = this.player.stats.maxRange;
     const wall = this.world.raycast(start, dir, range);
     const zHits = this.castZombies(start, dir, wall ? wall.distance : range);
     if (zHits.length) this.aim.point.copy(zHits[0].point);
@@ -377,63 +425,127 @@ export class Game {
 
   private fireShot(): void {
     this.stats.shots++;
+    const def = this.player.def;
+    const gun = this.player.stats;
     const aim = this.computeAim();
-    this.player.pistol.muzzle.getWorldPosition(muzzlePos);
-    const dir = new Vector3().subVectors(aim.point, muzzlePos);
-    const dist = dir.length();
-    dir.normalize();
+    this.player.muzzleWorld(muzzlePos);
+    const baseDir = new Vector3().subVectors(aim.point, muzzlePos).normalize();
+    const shotgun = gun.pellets > 1;
 
-    this.fx.muzzleFlash(muzzlePos, dir);
-    this.sfx.gunshot();
-    this.cam.shake(tuning.feel.shakeShot);
-    this.player.pistol.ejectionPort.getWorldPosition(tmp);
-    this.fx.ejectShell(tmp, tmp2.set(Math.cos(this.cam.yaw), 0, -Math.sin(this.cam.yaw)));
+    this.fx.muzzleFlash(muzzlePos, baseDir, shotgun ? 1.8 : 1);
+    this.sfx.shot(def.sound);
+    this.cam.shake(tuning.feel.shakeShot * (shotgun ? 2.2 : 1));
 
-    // Trace the bullet from the barrel to the aim point (and a little beyond).
-    const reach = Math.max(dist + 0.5, 1);
-    const wall = this.world.raycast(muzzlePos, dir, tuning.pistol.maxRange);
-    const stopAt = wall ? wall.distance : tuning.pistol.maxRange;
-    const hits = this.castZombies(muzzlePos, dir, Math.max(reach, stopAt));
-    const hitZombies = new Set<Zombie>();
-    let stoppedByZombie = false;
-    let anyHit = false;
-    for (const h of hits) {
-      if (h.distance > stopAt) break;
-      const z = h.object.userData.zombie as Zombie;
-      if (hitZombies.has(z)) continue;
-      hitZombies.add(z);
-      const groundY = this.world.groundHeight(h.point.x, h.point.z);
-      if (!z.alive) {
-        // Shooting a body: just blood.
-        this.fx.blood(h.point, dir, 0.6, groundY);
-        this.sfx.impactFlesh('torso', h.point, false);
-        stoppedByZombie = true;
-        break;
+    // Trace every bullet / pellet from the barrel. Pellets fan out in a cone.
+    const perZombie = new Map<Zombie, { pellets: PelletHit[]; points: Vector3[]; dir: Vector3 }>();
+    const corpseHits: Array<{ point: Vector3; dir: Vector3 }> = [];
+    let wallSound = false;
+    const dir = new Vector3();
+    for (let i = 0; i < gun.pellets; i++) {
+      randomInCone(baseDir, shotgun ? gun.pelletSpread : 0, dir);
+      const wall = this.world.raycast(muzzlePos, dir, gun.maxRange);
+      const stopAt = wall ? wall.distance : gun.maxRange;
+      const hits = this.castZombies(muzzlePos, dir, stopAt);
+      const passed = new Set<Zombie>();
+      let stopped = false;
+      for (const h of hits) {
+        const z = h.object.userData.zombie as Zombie;
+        if (passed.has(z)) continue;
+        passed.add(z);
+        if (!z.alive) {
+          corpseHits.push({ point: h.point.clone(), dir: dir.clone() });
+          stopped = true;
+          break;
+        }
+        const k = falloff(h.distance, gun.falloffStart, gun.falloffEnd, gun.falloffMin);
+        let entry = perZombie.get(z);
+        if (!entry) {
+          entry = { pellets: [], points: [], dir: new Vector3() };
+          perZombie.set(z, entry);
+        }
+        entry.pellets.push({ zone: h.object.userData.zone as Zone, damage: gun.damage * k, knockback: gun.knockback * k });
+        entry.points.push(h.point.clone());
+        entry.dir.add(dir);
+        if (passed.size > gun.pierce) {
+          stopped = true;
+          break;
+        }
       }
-      const zone = h.object.userData.zone as Zone;
-      const group = zoneGroup(zone);
-      const result = resolveHit(zone, tuning.pistol, z.targetState, this.player.focus, tuning);
-      z.applyHit(result, dir, this.sfx, this.zombieHost);
-      this.fx.blood(h.point, dir, group === 'head' ? 1.5 : 1, groundY);
-      this.sfx.impactFlesh(group, h.point, result.killed);
-      this.hud.hitMarker(group, result.killed, tuning.feel.hitMarkerTime);
-      const f = tuning.feel;
-      const stop = result.killed ? f.hitStopKill : group === 'head' ? f.hitStopHead : f.hitStopBody;
-      this.hitStop = Math.max(this.hitStop, stop);
-      if (group === 'head') this.cam.shake(f.shakeHeadshot);
-      if (!anyHit) this.stats.hits++;
-      anyHit = true;
-      if (group === 'head') this.stats.headshots++;
-      if (result.killed) this.stats.kills++;
-      this.stats.lastHit = describeHit(result);
-      if (hitZombies.size > tuning.pistol.pierce) {
-        stoppedByZombie = true;
-        break;
+      if (!stopped && wall) {
+        this.fx.surfaceImpact(wall.point, wall.normal, wall.surface, shotgun ? 0.4 : 1);
+        if (!wallSound) this.sfx.impactSurface(wall.surface, wall.point);
+        wallSound = true;
       }
     }
-    if (!stoppedByZombie && wall) {
-      this.fx.surfaceImpact(wall.point, wall.normal, wall.surface);
-      this.sfx.impactSurface(wall.surface, wall.point);
+
+    // Close-range blast: zombies right in front of the barrel get bowled over,
+    // even ones the pellets missed (this is what knocks whole groups down).
+    if (gun.blastRange > 0) {
+      for (const z of this.zombies) {
+        if (!z.alive) continue;
+        const to = z.chestPosition(tmp).sub(muzzlePos);
+        const d = to.length();
+        // Measured left-right only, so aiming high or low doesn't matter.
+        const angle = MathUtils.radToDeg(Math.abs(angleBetweenFlat(to, baseDir)));
+        const push = blastPush(d, angle, gun.blastRange, gun.blastAngle, gun.blastPush);
+        if (push <= 0) continue;
+        const wall = this.world.raycast(muzzlePos, to.normalize(), d);
+        if (wall) continue;
+        let entry = perZombie.get(z);
+        if (!entry) {
+          entry = { pellets: [], points: [], dir: new Vector3() };
+          perZombie.set(z, entry);
+        }
+        entry.pellets.push({ zone: 'torso', damage: 0, knockback: push });
+        entry.dir.add(to);
+      }
+    }
+
+    for (const c of corpseHits.slice(0, 3)) {
+      this.fx.blood(c.point, c.dir, 0.5, this.world.groundHeight(c.point.x, c.point.z));
+    }
+    if (corpseHits.length) this.sfx.impactFlesh('torso', corpseHits[0].point, false);
+
+    // Each zombie that was hit reacts once to everything that hit it.
+    const f = tuning.feel;
+    let headHit = false;
+    let pelletHits = 0;
+    let summary: HitResult | null = null;
+    let knockedDown = 0;
+    for (const [z, entry] of perZombie) {
+      const result = resolveShot(entry.pellets, z.targetState, this.player.focus, tuning);
+      entry.dir.normalize();
+      z.applyHit(result, entry.dir, this.sfx, this.zombieHost);
+      if (result.reaction === 'knockdown' || result.killed) knockedDown++;
+      if (entry.points.length === 0) continue; // only caught by the blast
+      if (!summary || result.pellets > summary.pellets) summary = result;
+      pelletHits++;
+      entry.points.slice(0, 4).forEach((pt, i) => {
+        const zone = entry.pellets[i].zone;
+        this.fx.blood(pt, entry.dir, (zone === 'head' ? 1.5 : 1) / Math.sqrt(entry.points.length), this.world.groundHeight(pt.x, pt.z));
+      });
+      const group = zoneGroup(result.zone);
+      this.sfx.impactFlesh(group, entry.points[0], result.killed);
+      this.hud.hitMarker(group, result.killed, f.hitMarkerTime);
+      const stop = result.killed
+        ? f.hitStopKill
+        : result.reaction === 'knockdown'
+          ? f.hitStopKnockdown
+          : group === 'head'
+            ? f.hitStopHead
+            : f.hitStopBody;
+      this.hitStop = Math.max(this.hitStop, stop);
+      if (group === 'head') headHit = true;
+      if (result.killed) this.stats.kills++;
+    }
+    if (summary) {
+      const others = knockedDown - (summary.reaction === 'knockdown' || summary.killed ? 1 : 0);
+      this.stats.lastHit = describeHit(summary) + (others > 0 ? ` (+${others} more bowled over)` : '');
+    }
+    if (pelletHits > 0) this.stats.hits++;
+    if (headHit) {
+      this.stats.headshots++;
+      this.cam.shake(f.shakeHeadshot);
     }
   }
 
@@ -453,6 +565,7 @@ export class Game {
       const mouseActive = this.autotest || this.input.pointerLocked;
       const look = this.controls.frame(dt, mouseActive, this.player.aiming);
       if (playing && !this.freeCam) this.cam.look(look.yaw, look.pitch);
+      if (this.freeCam && !this.freeCamControls) this.flyCamera.look(look.yaw, look.pitch);
 
       let alpha = 1;
       if (playing) {
@@ -486,7 +599,9 @@ export class Game {
     }
     this.gameTime += dt;
     this.tickCount++;
-    const input = this.freeCam ? { moveX: 0, moveY: 0, aim: false, firePressed: false, reloadPressed: false, sprint: false, sprintPressed: false } : this.controls.take();
+    const input = this.freeCam && !this.freeCamControls
+      ? { moveX: 0, moveY: 0, aim: false, firePressed: false, reloadPressed: false, sprint: false, sprintPressed: false, weaponSlot: null, weaponCycle: 0 }
+      : this.controls.take();
     for (const z of this.zombies) z.update(dt, this.zombieHost);
     this.player.tick(dt, input, this.cam, this.world, this.playerHost);
     for (const p of this.fallingProps) p.update(dt, this.world.groundHeight(p.object.position.x, p.object.position.z));
@@ -500,6 +615,7 @@ export class Game {
     if (this.freeCam) {
       this.flyCamera.update(dt);
     } else {
+        this.cam.recoilRecovery = this.player.stats.recoilRecovery;
       this.cam.update(dt, tmp, playing && this.player.aiming, this.world);
     }
     for (const z of this.zombies) z.render(alpha);
@@ -508,27 +624,34 @@ export class Game {
       const aim = this.computeAim();
       this.player.render(alpha, aim.point, this.cam);
       // Laser sight from the module under the barrel to whatever it hits.
-      const showLaser = playing && this.player.aiming && this.cam.aimBlend > 0.6 && !this.freeCam;
+      const showLaser = playing && this.player.aiming && (this.cam.aimBlend > 0.6 || this.freeCam);
       if (showLaser) {
-        this.player.pistol.laser.getWorldPosition(laserPos);
+        this.player.laserWorld(laserPos);
         const toAim = tmp2.subVectors(aim.point, laserPos);
         const d = toAim.length();
         toAim.normalize();
         const wall = this.world.raycast(laserPos, toAim, d + 0.05);
         const zh = this.castZombies(laserPos, toAim, wall ? wall.distance : d + 0.3);
         const end = zh.length ? zh[0].point : wall ? wall.point : aim.point;
-        const hitSomething = zh.length > 0 || wall !== null || d < tuning.pistol.maxRange - 1;
+        const hitSomething = zh.length > 0 || wall !== null || d < this.player.stats.maxRange - 1;
         this.fx.setLaser(laserPos, end, hitSomething ? end : null);
       } else {
         this.fx.setLaser(null, null, null);
       }
-      // Reticle size on screen matches the real aim wobble.
-      const spread = MathUtils.degToRad(this.player.reticle.spread);
-      const radius = (Math.tan(spread) / Math.tan(MathUtils.degToRad(this.camera.fov / 2))) * (window.innerHeight / 2);
-      this.hud.setReticle(showLaser ? radius : null, this.player.focus);
+      // Reticle size on screen matches the real aim wobble (plus the pellet spread for shotguns).
       const p = this.player;
-      const reload = p.reloading ? p.reloadTime / p.reloadTotal : null;
-      this.hud.setAmmo(p.ammo, tuning.pistol.infiniteAmmo ? null : p.reserve, reload);
+      const ps = p.stats;
+      const spread = MathUtils.degToRad(p.reticle.spread + (ps.pellets > 1 ? ps.pelletSpread : 0));
+      const radius = (Math.tan(spread) / Math.tan(MathUtils.degToRad(this.camera.fov / 2))) * (window.innerHeight / 2);
+      this.hud.setReticle(showLaser ? radius : null, p.focus);
+      const g = p.gun;
+      const reload = g.reloading ? (g.def.reload === 'shells' ? g.ammo / ps.capacity : g.reloadProgress) : null;
+      this.hud.setAmmo(g.ammo, tuning.weapons.infiniteAmmo ? null : g.reserve, reload);
+      this.hud.setWeaponName(g.def.name);
+      if (p.selected !== this.lastWeapon || p.switching) {
+        this.lastWeapon = p.selected;
+        this.hud.showWeapons(WEAPONS.map((w) => ({ slot: w.slot, name: w.name })), p.selected);
+      }
       this.hud.setStats(this.mode === 'range' ? this.stats : null);
       const padName = this.pad.connected ? (this.pad.type === 'playstation' ? 'Options' : 'Menu') : null;
       this.hud.setHint(this.controls.lastDevice === 'gamepad' && padName ? `${padName}: menu & controls` : 'Esc: menu & controls  ·  F1: tuning');
@@ -587,7 +710,7 @@ export class Game {
       shadow.map?.dispose();
       shadow.map = null;
     }
-    if (path === 'pistol.capacity') this.player.ammo = Math.min(this.player.ammo, tuning.pistol.capacity);
+    for (const g of this.player.guns) g.ammo = Math.min(g.ammo, g.stats.capacity);
   }
 
   private applyGraphicsTuning(): void {
@@ -639,8 +762,9 @@ export class Game {
   }
 
   /** Switches to the free camera and looks from one point at another (for screenshots). */
-  debugView(from: Vector3 | null, to: Vector3 | null): void {
+  debugView(from: Vector3 | null, to: Vector3 | null, keepControls = false): void {
     this.freeCam = from !== null && to !== null;
+    this.freeCamControls = keepControls;
     if (from && to) this.flyCamera.lookFrom(from, to);
   }
 
@@ -648,8 +772,9 @@ export class Game {
     return {
       mode: this.mode,
       paused: this.paused,
-      ammo: this.player.ammo,
-      reloading: this.player.reloading,
+      weapon: this.player.def.id,
+      ammo: this.player.gun.ammo,
+      reloading: this.player.gun.reloading,
       aiming: this.player.aiming,
       focus: this.player.focus,
       player: this.player.position.toArray(),

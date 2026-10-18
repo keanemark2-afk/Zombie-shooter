@@ -33,14 +33,14 @@ export class FlyCamera {
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
   }
 
+  /** Turns the view (radians), from the mouse or right stick. */
+  look(dYaw: number, dPitch: number): void {
+    this.yaw += dYaw;
+    this.pitch += dPitch;
+  }
+
   update(dt: number): void {
     const flySpeed = tuning.debug.flySpeed;
-    const { dx, dy } = this.input.takeMouseDelta();
-    if (this.input.pointerLocked || this.input.anyMouseDown()) {
-      const turn = 0.0025;
-      this.yaw -= dx * turn;
-      this.pitch -= dy * turn;
-    }
     const keyTurn = 1.8 * dt;
     if (this.input.isDown('ArrowLeft')) this.yaw += keyTurn;
     if (this.input.isDown('ArrowRight')) this.yaw -= keyTurn;

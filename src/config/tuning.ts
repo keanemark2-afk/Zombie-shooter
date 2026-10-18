@@ -34,6 +34,7 @@ export const tuning = {
     classicAim: false, // Tick for 2005-style aiming: feet planted while aiming. Untick for 2023-style slow walking while aiming.
     acceleration: 14, // How quickly you reach full speed. Higher feels snappier. [2 to 40]
     turnSpeed: 720, // How fast the character turns to face the way you run, in degrees per second. [90 to 1800]
+    quickTurn: true, // Hold back and tap sprint (while facing away from the camera) to spin round 180 degrees. Untick to switch it off.
     quickTurnTime: 0.3, // How long the quick 180-degree turn takes. [0.1 to 1]
     radius: 0.35, // Size of the player's body for bumping into things. [0.2 to 0.6]
     hitStunTime: 0.55, // How long you are stunned (can't aim) after a zombie hits you. [0 to 2]
@@ -53,11 +54,24 @@ export const tuning = {
     lookDownLimit: 65, // How far down you can look. [10 to 89]
     lookUpLimit: 55, // How far up you can look. [10 to 89]
     wallPadding: 0.2, // How far the camera keeps from walls so they never block the view. [0 to 0.6]
+    wallEaseOut: 6, // How smoothly the camera slides back out after a wall stops pushing it in. Higher = quicker. [1 to 30]
   },
 
-  // The starter pistol ("Kestrel 9").
+  // Shared weapon settings.
+  weapons: {
+    infiniteAmmo: true, // Spare ammo never runs out (handy for testing).
+    switchTime: 0.45, // How long swapping to another weapon takes. [0.1 to 2]
+    startWeapon: 'pistol', // The weapon in your hands when a round starts. [options: pistol, pump, drum]
+  },
+
+  // The starter pistol ("Kestrel 9"). Weapon slot 1.
   pistol: {
     damage: 100, // Firepower: damage per bullet before body-part multipliers. [10 to 1000]
+    pellets: 1, // Bullets fired per shot. [1 to 20]
+    pelletSpread: 0, // How wide extra pellets scatter, in degrees (0 for a single bullet). [0 to 20]
+    falloffStart: 200, // Distance where damage starts to drop off. [1 to 200]
+    falloffEnd: 200, // Distance where damage reaches its lowest. [1 to 400]
+    falloffMin: 1, // Fraction of damage left at long range (1 = no drop-off). [0 to 1]
     fireInterval: 0.24, // Fire rate: minimum time between shots. Lower = faster. [0.05 to 1.5]
     capacity: 10, // Bullets per magazine. [1 to 60]
     reloadTime: 1.35, // Reload speed with bullets still in the gun. [0.2 to 5]
@@ -72,11 +86,75 @@ export const tuning = {
     recoilKick: 1.6, // How far each shot kicks your aim upwards, in degrees. [0 to 8]
     recoilSideways: 0.45, // Random sideways recoil per shot, in degrees. [0 to 4]
     recoilRecovery: 9, // How quickly your aim settles back after recoil. Higher = faster. [1 to 30]
-    knockback: 0.15, // How hard a torso hit shoves a zombie back, in metres. [0 to 3]
+    knockback: 0.15, // How hard each bullet shoves a zombie, in metres. [0 to 3]
     pierce: 0, // How many extra zombies one bullet can pass through. [0 to 5]
+    blastRange: 0, // Close-range blast reach: zombies this close in front get bowled over even if missed (0 = none). [0 to 6]
+    blastAngle: 0, // How wide the close-range blast is, in degrees either side of your aim. [0 to 60]
+    blastPush: 0, // How hard the close-range blast shoves (1.6+ knocks a zombie down). [0 to 8]
     maxRange: 120, // How far bullets travel. [10 to 400]
-    infiniteAmmo: true, // Spare ammo never runs out (handy for testing).
     spareAmmo: 60, // Spare bullets you carry when infinite ammo is off. [0 to 500]
+  },
+
+  // Pump-action shotgun ("Bramble 12"). Weapon slot 2. Loads one shell at a time.
+  pumpShotgun: {
+    damage: 42, // Firepower: damage per pellet before body-part multipliers. [5 to 500]
+    pellets: 9, // Pellets per shot. [1 to 20]
+    pelletSpread: 6.5, // How wide the pellets scatter, in degrees. Bigger hits more zombies up close. [0 to 20]
+    falloffStart: 5, // Distance where pellet damage and push start to drop off. [1 to 60]
+    falloffEnd: 22, // Distance where pellets are at their weakest. [2 to 100]
+    falloffMin: 0.25, // Fraction of pellet damage left at long range. [0 to 1]
+    fireInterval: 0.85, // Time between shots, including working the pump. [0.2 to 3]
+    capacity: 6, // Shells the gun holds. [1 to 20]
+    reloadTime: 0.42, // Time to push in one shell. Reloads shell by shell; fire to stop early. [0.1 to 2]
+    emptyReloadTime: 0.45, // Extra time to pump the first shell in when reloading from empty. [0 to 2]
+    focusTime: 0.6, // How long the reticle takes to tighten fully while you hold still. [0.05 to 3]
+    spreadWide: 4.5, // Reticle wobble when you first raise the gun, in degrees. [0.2 to 12]
+    spreadTight: 0.6, // Reticle wobble when fully focused. [0 to 4]
+    spreadMoving: 2, // Smallest wobble while walking and aiming. [0 to 8]
+    fireBloom: 3, // How much each shot widens the reticle. [0 to 8]
+    turnBloom: 0.03, // How much the reticle widens per degree you swing the camera. [0 to 0.3]
+    swaySpeed: 1.4, // How fast the laser dot wanders inside the reticle. [0.1 to 6]
+    recoilKick: 5.5, // How far each shot kicks your aim upwards, in degrees. [0 to 15]
+    recoilSideways: 1.2, // Random sideways recoil per shot, in degrees. [0 to 6]
+    recoilRecovery: 6, // How quickly your aim settles back after recoil. Higher = faster. [1 to 30]
+    knockback: 0.32, // How hard each pellet shoves a zombie. Enough pellets knock it off its feet. [0 to 2]
+    pierce: 0, // How many extra zombies one pellet can pass through. [0 to 5]
+    blastRange: 3.2, // Close-range blast reach: zombies this close in front get bowled over even if missed. [0 to 6]
+    blastAngle: 36, // How wide the close-range blast is, in degrees either side of your aim. [0 to 60]
+    blastPush: 2.8, // How hard the close-range blast shoves (1.6+ knocks a zombie down). [0 to 8]
+    maxRange: 60, // How far pellets travel. [5 to 200]
+    spareAmmo: 24, // Spare shells you carry when infinite ammo is off. [0 to 200]
+  },
+
+  // Semi-automatic drum shotgun ("Thresher"). Weapon slot 3. Fires as fast as you pull the trigger.
+  drumShotgun: {
+    damage: 30, // Firepower: damage per pellet before body-part multipliers. [5 to 500]
+    pellets: 8, // Pellets per shot. [1 to 20]
+    pelletSpread: 5, // How wide the pellets scatter, in degrees. [0 to 20]
+    falloffStart: 4, // Distance where pellet damage and push start to drop off. [1 to 60]
+    falloffEnd: 18, // Distance where pellets are at their weakest. [2 to 100]
+    falloffMin: 0.2, // Fraction of pellet damage left at long range. [0 to 1]
+    fireInterval: 0.3, // Fire rate: minimum time between shots. [0.1 to 2]
+    capacity: 12, // Shells in a drum. [1 to 40]
+    reloadTime: 2.2, // Time to swap the drum with shells still in the gun. [0.3 to 6]
+    emptyReloadTime: 2.7, // Time to swap the drum and rack the bolt when empty. [0.3 to 7]
+    focusTime: 0.7, // How long the reticle takes to tighten fully while you hold still. [0.05 to 3]
+    spreadWide: 5, // Reticle wobble when you first raise the gun, in degrees. [0.2 to 12]
+    spreadTight: 0.8, // Reticle wobble when fully focused. [0 to 4]
+    spreadMoving: 2.4, // Smallest wobble while walking and aiming. [0 to 8]
+    fireBloom: 2.2, // How much each shot widens the reticle. [0 to 8]
+    turnBloom: 0.03, // How much the reticle widens per degree you swing the camera. [0 to 0.3]
+    swaySpeed: 1.6, // How fast the laser dot wanders inside the reticle. [0.1 to 6]
+    recoilKick: 3.6, // How far each shot kicks your aim upwards, in degrees. [0 to 15]
+    recoilSideways: 1.4, // Random sideways recoil per shot, in degrees. [0 to 6]
+    recoilRecovery: 7, // How quickly your aim settles back after recoil. Higher = faster. [1 to 30]
+    knockback: 0.24, // How hard each pellet shoves a zombie. [0 to 2]
+    pierce: 0, // How many extra zombies one pellet can pass through. [0 to 5]
+    blastRange: 2.6, // Close-range blast reach: zombies this close in front get bowled over even if missed. [0 to 6]
+    blastAngle: 30, // How wide the close-range blast is, in degrees either side of your aim. [0 to 60]
+    blastPush: 2.2, // How hard the close-range blast shoves (1.6+ knocks a zombie down). [0 to 8]
+    maxRange: 50, // How far pellets travel. [5 to 200]
+    spareAmmo: 36, // Spare shells you carry when infinite ammo is off. [0 to 200]
   },
 
   // Damage multipliers per body part.
@@ -101,6 +179,8 @@ export const tuning = {
     armFlinchTime: 0.55, // How long an arm hit interrupts a zombie. [0.1 to 2]
     torsoFlinchTime: 0.25, // How long a body shot makes a zombie flinch. [0 to 1.5]
     knockbackThreshold: 0.6, // Knockback needed for a torso hit to shove a zombie back a step. [0 to 3]
+    knockdownThreshold: 1.6, // Total push from one shot needed to blow a zombie off its feet (a close shotgun blast). [0.2 to 10]
+    knockdownTime: 2, // How long a knocked-down zombie lies on its back before getting up. [0.3 to 8]
   },
 
   // The basic zombie (the "Shambler").
@@ -123,6 +203,7 @@ export const tuning = {
   // The shooting range test area.
   range: {
     dummyDistance: 12, // How far down the lane the dummy zombie stands. [3 to 40]
+    dummyCount: 1, // How many dummies stand side by side (try 3 with a shotgun). [1 to 6]
     dummyBehavior: 'stand', // What the dummy does. "run" is for testing leg-shot trips. [options: stand, walk, pace, run]
     dummyRespawnDelay: 2, // Seconds before a new dummy appears after one dies. [0 to 10]
     dummyInvincible: false, // Tick to make the dummy unkillable, for practising reactions.
@@ -140,6 +221,7 @@ export const tuning = {
     hitStopHead: 0.04, // Tiny freeze on a headshot, in seconds. [0 to 0.2]
     hitStopBody: 0, // Tiny freeze on other hits. [0 to 0.2]
     hitStopKill: 0.07, // Tiny freeze on a killing shot. [0 to 0.3]
+    hitStopKnockdown: 0.06, // Tiny freeze when a blast knocks a zombie down. [0 to 0.3]
     shakeShot: 0.12, // Camera shake when you fire. [0 to 1]
     shakeHeadshot: 0.1, // Extra camera shake on a headshot. [0 to 1]
     shakeHurt: 0.5, // Camera shake when a zombie hits you. [0 to 1]
