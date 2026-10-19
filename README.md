@@ -4,7 +4,7 @@ An over-the-shoulder zombie arena shooter that plays like the classic survival-h
 action games: tight pistol gunplay, body-part hit reactions, kicks and suplexes,
 a trader between waves, and a score-attack mode. No story, just the fighting.
 
-**Status:** Phase 3 of 7 (Survival waves, zombies that take turns, health and herbs, drops, plus everything from earlier phases). See `PROGRESS.md`.
+**Status:** Phase 5 of 7 (the case and the Trader, plus grenades, new enemies, the parasite and more guns, plus everything from earlier phases). See `PROGRESS.md`.
 
 ## How to play (Windows)
 
@@ -22,9 +22,11 @@ If Node.js is missing, the launcher tells you exactly what to install.
 | Aim (laser sight) | Hold right mouse | Hold L2 | Hold LT |
 | Shoot (while aiming) | Left mouse | R2 | RT |
 | Reload | R | Square | X |
-| Switch weapon | 1-7 / mouse wheel | D-pad left / right | D-pad left / right |
+| Switch weapon | 1-9 / mouse wheel | D-pad left / right | D-pad left / right |
+| Attache case / talk to Trader | Tab / E | Create / Cross | View / A |
 | Heal (herb or spray) | H | Triangle | Y |
 | Kick / suplex / finish (when prompted) | F | Cross | A |
+| Throw a grenade / change type | G / B | L1 / D-pad up | LB / D-pad up |
 | Knife slash / parry (hold to block) | V | R1 | RB |
 | Break free of a grab | Mash F (or V to stab) | Mash Cross (or R1) | Mash A (or RB) |
 | Sprint | Hold Shift | Hold Cross | Hold A |

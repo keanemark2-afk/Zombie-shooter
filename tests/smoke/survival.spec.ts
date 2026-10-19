@@ -21,7 +21,7 @@ test('survival: waves, turns, healing, drops and death', async ({ page }) => {
   let s = await state(page);
   expect(s.mode).toBe('survival');
   expect(s.health).toBe(100);
-  expect(s.items).toEqual(['herb:G']);
+  expect(s.items.sort()).toEqual(['grenade:frag', 'grenade:frag', 'herb:G', 'weapon:pistol']);
   await expect(page.locator('.health-box')).toBeVisible();
 
   // The wave counts down, then zombies walk in through the gates.
@@ -85,7 +85,7 @@ test('survival: waves, turns, healing, drops and death', async ({ page }) => {
   await expect.poll(async () => (await state(page)).healing, { timeout: 60_000 }).toBe(false);
   s = await state(page);
   expect(s.health).toBe(75);
-  expect(s.items).toEqual([]);
+  expect(s.items.filter((i) => !i.startsWith('grenade'))).toEqual([]);
 
   // Hit while healing: the herb is not used up.
   await page.evaluate(() => window.__deadAcre!.cheat('herb', 0, 'G'));
@@ -96,7 +96,7 @@ test('survival: waves, turns, healing, drops and death', async ({ page }) => {
   await waitForFrames(page, 2);
   s = await state(page);
   expect(s.healing).toBe(false);
-  expect(s.items).toEqual(['herb:G']);
+  expect(s.items.sort()).toEqual(['grenade:frag', 'grenade:frag', 'herb:G', 'weapon:pistol']);
   expect(s.health).toBe(65);
 
   // Killed zombies drop things (the rules are unit-tested); walk over a pile of coins.

@@ -1,6 +1,7 @@
 import './style.css';
 import { Vector3 } from 'three';
 import type { Zone } from './combat/damage';
+import { settings } from './config/settings';
 import { tuning, type Tuning } from './config/tuning';
 import { Game } from './core/game';
 import { installErrorOverlay, showError } from './debug/errorOverlay';
@@ -25,6 +26,8 @@ declare global {
       killAll: () => void;
       spawn: (kind: EnemyKind, distance: number, aware: boolean, side?: number) => number;
       cheat: (kind: Parameters<Game['debugCheat']>[0], value?: number, key?: string) => void;
+      ui: (which: 'case' | 'trader' | 'close') => void;
+      difficulty: (id: 'easy' | 'normal' | 'hard' | 'pro') => void;
     };
   }
 }
@@ -78,5 +81,9 @@ if (!webglAvailable()) {
     killAll: () => game.debugKillAll(),
     spawn: (kind, distance, aware, side) => game.debugSpawn(kind, distance, aware, side),
     cheat: (kind, value, key) => game.debugCheat(kind, value, key),
+    ui: (which) => game.debugUi(which),
+    difficulty: (id) => {
+      settings.difficulty = id;
+    },
   };
 }

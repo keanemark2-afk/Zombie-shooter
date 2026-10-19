@@ -56,3 +56,15 @@ describe('chainsawHit', () => {
     expect(chainsawHit('pro', 70, 'hard').instantKill).toBe(true);
   });
 });
+
+describe('shields', () => {
+  it('soak up damage and break once, on the hit that finishes them', () => {
+    const shield = new ShieldState(100);
+    expect(shield.hit(60)).toBe(false);
+    expect(shield.broken).toBe(false);
+    expect(shield.hit(60)).toBe(true);
+    expect(shield.broken).toBe(true);
+    expect(shield.hit(60)).toBe(false);
+    expect(shield.hp).toBe(0);
+  });
+});

@@ -75,8 +75,8 @@ export class ShieldState {
 export type Difficulty = 'easy' | 'normal' | 'hard' | 'pro';
 
 /** What a chainsaw hit does: instant death on the hard settings, a heavy blow otherwise. */
-export function chainsawHit(difficulty: Difficulty, normalDamage: number, instantKillFrom: Difficulty): { damage: number; instantKill: boolean } {
+export function chainsawHit(difficulty: Difficulty, normalDamage: number, instantKillFrom: Difficulty | 'never'): { damage: number; instantKill: boolean } {
   const order: Difficulty[] = ['easy', 'normal', 'hard', 'pro'];
-  const kills = order.indexOf(difficulty) >= order.indexOf(instantKillFrom);
+  const kills = instantKillFrom !== 'never' && order.indexOf(difficulty) >= order.indexOf(instantKillFrom);
   return { damage: normalDamage, instantKill: kills };
 }

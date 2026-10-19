@@ -4,9 +4,64 @@ Plain-English log of what's built, what's next and what's known to be wrong.
 
 ## Where we are
 
-**Building straight through to the end (you asked me to). Phases 0-3 are done; Phase 4 is next.**
+**Building straight through to the end (you asked me to). Phases 0-5 are done (you asked me to trim the rest to save your usage, so Phases 6 and 7 are NOT built - see the end).**
 
 ## Done
+
+### Phase 5 - Case & Trader
+- **Attache case (Tab / Create button):** a 7x10 grid holding your guns, herbs, grenades,
+  treasure and attachments. Drag items to move them, **R** or right-click turns one, drop a
+  herb on a herb to mix, drop an attachment on a gun to fit it, "Tidy up" packs it. Use heals,
+  "Throw away" discards. With a controller, a cursor moves round the grid. If the case is full a
+  pickup is refused ("No room in your case").
+- **The Trader:** a hooded figure at a lantern-lit stall on the west side of the village. He
+  appears during the break between Survival waves (a marker shows where). Walk up, press **E**
+  (Cross). Tabs: **Buy** (guns, ammo, herbs, spray, grenades, attachments), **Sell** (treasure
+  and anything else), **Upgrade** (4 stats x 4-5 levels per gun, then an **Exclusive Upgrade**
+  per gun), **Tune-up** (repair the knife), **Cases** (7x12, 8x12, 8x13, 9x13 with small bonuses).
+  "Ready" skips the rest of the break. All prices are in F1 > Shop.
+- Guns now live in the case in Survival; you start with the pistol and buy the rest.
+
+### Phase 4 - Arsenal
+- **Grenades:** **G** throws one, **B** (D-pad up) changes type. Three kinds:
+  - **Frag** - explodes after about 2 seconds, hurts everything nearby (and you, if you
+    stand too close). It lands where you are aiming and bounces.
+  - **Flash** - a blinding bang. Zombies in sight are blinded and stagger about for 5
+    seconds (open to a kick), and **it kills parasites outright**. Look away or you are
+    dazzled too.
+  - **Incendiary** - bursts into flames where it lands. Zombies in the fire catch light
+    and keep burning for a few seconds after leaving it. You burn too if you stand in it.
+  You start Survival with 2 frag grenades; more drop from enemies. The count shows on the
+  right of the screen. On the shooting range you have a few of each.
+- **Two more pistols** (shooting range, keys **8** and **9**; in Survival they come from the
+  Trader): the **Blacktail** (slow, hits very hard) and the **Sparrow** (fast and steady).
+- **Enemy types** (they start arriving in the middle waves):
+  - **Harvester** - carries a pitchfork; about half carry an **axe they throw** from a
+    distance (it spins towards you; shoot the arm to stop the throw, shoot the axe out of
+    the air, or parry it with the knife).
+  - **Sprinter** - runs in short bursts (a leg shot trips it).
+  - **Plank-bearer** - holds a wooden **shield** in front. Bullets just splinter it; shoot
+    it enough and it breaks, or **kick it** (the Kick prompt shows when you are close)
+    to smash it apart. The back is unprotected.
+  - **Fuse-man** - lights a stick of **dynamite** and lobs it. Shoot the stick (or the
+    hand holding it) and it blows up where it is - including on him.
+  - **Hulk** (elite) - huge and tough; body shots barely bother it. A **headshot** staggers
+    it (then kick it); explosions throw it about.
+  - **Sawyer** (elite) - you hear its **chainsaw revving** before you see it. One hit does
+    a lot of damage, and on **Hard and Pro** it kills you outright (change in F1 > Chainsaw
+    > Instant kill from). Parry it with the knife, flash it, or stagger it with headshots.
+- **The parasite:** sometimes (more often as the waves go on) a zombie whose head you blow
+  off **without overkill** grows a **parasite** out of its neck - a toothed maw on a
+  writhing stalk with a long lashing tentacle. Shoot the parasite (it is the weak spot;
+  the body barely matters) or throw a flash grenade. Huge shots that overkill the zombie
+  just kill it cleanly.
+- **Critical hits** and **head pops** from Phase 2 still apply to normal zombies; elites
+  can't have their heads burst.
+- New sounds for all of it (chainsaw engine, shield hits, axe, fuse hiss, flash bang,
+  fire). The two new pistols use real recordings.
+- **Automated checks:** 181 unit tests, and a new browser test that throws each grenade,
+  fights every new enemy kind (shield, axe, dynamite, hulk, chainsaw on Normal and Hard),
+  grows a parasite and kills it, and fires both new pistols.
 
 ### Phase 3 - The horde
 - **Survival mode** (new menu button): waves of zombies walk in through the four gates of
@@ -182,18 +237,14 @@ Plain-English log of what's built, what's next and what's known to be wrong.
 - `Play Game.bat` launcher, the dusk village arena, F3 FPS counter, F1 tuning panel,
   on-screen error box, automated checks.
 
-## Next
-
-**Phase 4 - Arsenal:** grenades (frag, flash, incendiary), the parasite mutation, all the
-enemy types (axe throwers, runners, shield-bearers, dynamite throwers, the brute and
-the chainsaw man), and two more pistols.
+## Not built (trimmed at your request)
+- **Phase 6:** Score Attack mode, hidden dynamic difficulty, full difficulty/settings screens, remappable controls.
+- **Phase 7:** music, post-processing polish, real models, performance pass.
+The difficulty setting exists (it makes the chainsaw instant-kill on Hard/Pro) but has no menu yet.
 
 ## Known problems / notes
 - In Survival you only have the starter pistol; the Trader (where you buy and upgrade
   guns, repair the knife and mix herbs in the case) arrives in Phase 5.
-- Until then the shield-bearer, dynamite thrower, brute and chainsaw kinds are just
-  bigger / tougher zombies; their special moves are Phase 4.
-- Grenades, the parasite and the remaining pistols are Phase 4.
 - The suplex throws the zombie behind you, which is towards the camera, so you briefly
   see it land close up.
 - Village zombies walk straight at you and slide around obstacles; they can get

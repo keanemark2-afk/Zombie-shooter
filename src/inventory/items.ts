@@ -1,4 +1,5 @@
 import { herbEffect } from '../combat/health';
+import { WEAPONS } from '../combat/weapons';
 
 // Everything you can carry that isn't a gun or its ammo: herbs, sprays,
 // grenades, treasure and gun attachments. The same item list is shown in the
@@ -6,7 +7,7 @@ import { herbEffect } from '../combat/health';
 
 export type GrenadeKind = 'frag' | 'flash' | 'fire';
 
-export type ItemKind = 'herb' | 'spray' | 'grenade' | 'treasure' | 'attachment';
+export type ItemKind = 'herb' | 'spray' | 'grenade' | 'treasure' | 'attachment' | 'weapon';
 
 export interface Item {
   id: number;
@@ -88,8 +89,27 @@ export function itemDef(item: Pick<Item, 'kind' | 'key'>): ItemDef {
       const a = ATTACHMENTS[item.key] ?? ATTACHMENTS.stock;
       return { name: a.name, w: a.w, h: a.h, value: Math.round(a.value * 0.5), color: '#8f9aa6', blurb: a.blurb };
     }
+    case 'weapon': {
+      const size = WEAPON_SIZES[item.key] ?? WEAPON_SIZES.pistol;
+      const name = WEAPONS.find((w) => w.id === item.key)?.name ?? item.key;
+      // The Trader decides what a gun sells for (a share of its price).
+      return { name, w: size.w, h: size.h, value: 0, color: size.color, blurb: 'A gun. Drag an attachment onto it to fit it.' };
+    }
   }
 }
+
+/** How much room each gun takes up in the case (before turning it on its side). */
+export const WEAPON_SIZES: Record<string, { w: number; h: number; color: string }> = {
+  pistol: { w: 3, h: 2, color: '#6c7480' },
+  heavy: { w: 3, h: 2, color: '#7a6a58' },
+  swift: { w: 3, h: 2, color: '#587a6e' },
+  magnum: { w: 4, h: 2, color: '#8a7a5a' },
+  smg: { w: 4, h: 3, color: '#5a6478' },
+  pump: { w: 7, h: 2, color: '#7a5a46' },
+  drum: { w: 7, h: 2, color: '#6a4a3a' },
+  rifle: { w: 8, h: 2, color: '#5d6b4a' },
+  rocket: { w: 8, h: 3, color: '#6b6a3a' },
+};
 
 let nextItemId = 1;
 

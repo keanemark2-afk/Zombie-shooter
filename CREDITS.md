@@ -13,7 +13,7 @@ required, credited here anyway). Each file was cut, trimmed, layered and faded b
 
 | Files | What | Source | Creators | License |
 | --- | --- | --- | --- | --- |
-| `pistol-1/2.ogg`, `pump-1/2.ogg`, `drum-1/2.ogg`, `revolver-1/2.ogg`, `smg-1/2/3.ogg`, `rifle-1/2/3.ogg`, `magnum-1/2.ogg` | Gunshots (close and distant microphones mixed together; the revolver shot is layered with a rifle's echo) | [The Free Firearm Sound Library](https://opengameart.org/content/the-free-firearm-sound-library) (freefirearmsfx.com, "Prepared SFX Library") | Ben Jaszczak, Brian Nelson, Kevin Heras, Matthew Nanney | CC0 |
+| `pistol-1/2.ogg`, `pump-1/2.ogg`, `drum-1/2.ogg`, `revolver-1/2.ogg`, `smg-1/2/3.ogg`, `rifle-1/2/3.ogg`, `magnum-1/2.ogg`, `swift-1/2.ogg` | Gunshots (close and distant microphones mixed together; the revolver shot is layered with a rifle's echo) | [The Free Firearm Sound Library](https://opengameart.org/content/the-free-firearm-sound-library) (freefirearmsfx.com, "Prepared SFX Library") | Ben Jaszczak, Brian Nelson, Kevin Heras, Matthew Nanney | CC0 |
 | `pump-rack.ogg`, `shell-in.ogg` | Shotgun pump and loading a shell | [Shotgun Reload Sound effects](https://opengameart.org/content/shotgun-reload-sound-effects) | zer0_sol | CC0 |
 | `explosion-1.ogg` | Rocket and barrel explosions | [Chunky Explosion](https://opengameart.org/content/chunky-explosion) | Joth | CC0 |
 | `explosion-2.ogg` | Smaller explosion | [Dull explosion](https://opengameart.org/content/dull-explosion) | qubodup | CC0 |

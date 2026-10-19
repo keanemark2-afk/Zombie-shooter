@@ -60,7 +60,7 @@ describe('randomInCone', () => {
 });
 
 describe('weapons', () => {
-  it('has seven guns on quick-slots 1 to 7', () => {
+  it('has nine guns on quick-slots 1 to 9', () => {
     expect(WEAPONS.map((w) => [w.id, w.slot])).toEqual([
       ['pistol', 1],
       ['pump', 2],
@@ -69,6 +69,8 @@ describe('weapons', () => {
       ['rifle', 5],
       ['magnum', 6],
       ['rocket', 7],
+      ['heavy', 8],
+      ['swift', 9],
     ]);
     expect(def('pump').stats().pellets).toBeGreaterThan(1);
   });

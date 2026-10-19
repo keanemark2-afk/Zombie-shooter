@@ -70,6 +70,15 @@ The full brief is the user's original prompt; key rules are repeated here.
   numbers (`tuning.enemyTypes`, `src/enemies/kinds.ts`).
 - Pure rules, all unit tested: `combat/health.ts` (health, herbs), `combat/drops.ts`
   (`rollDrop`), `modes/waves.ts`, `inventory/supplies.ts`, `ai/*`.
+- Enemy kinds (`src/enemies/kinds.ts`, per-kind numbers in `tuning.enemyTypes`): the `Zombie`
+  class dresses each kind in `dressForKind` (gear from `src/characters/enemyParts.ts`) and
+  has states for throwing (`throwWindup`/`lightFuse`/`throwing`), `blinded`, the parasite
+  (`mutate`, `whipWindup`, `whip`). Shield planks and the parasite are hit-zones
+  (`'shield'`, `'parasite'`) added with `rig.addPart`; `ShieldState` is in `combat/ballistics.ts`
+  (also `solveThrow`, `chainsawHit`). Heavy elites (`targetState.heavy`) can't be popped/dismembered.
+- Thrown things: `src/fx/thrown.ts` (`ThrownSystem`, `FireSystem`); the game handles what a
+  detonation does (`detonateThrown`, `explode(at, direct, big, BlastSpec)`, `flashGrenade`,
+  `igniteGround`). Enemies throw through `ZombieHost.launchThrown`; bullets can hit them (`shotAt`).
 - Quick turn only triggers when the character faces away from the camera (the
   user hit accidental 180s when sprinting while backing off).
 - Game world updates at a fixed 60 Hz (`tick`), drawing interpolates positions (`render`).

@@ -1,13 +1,28 @@
 import { MathUtils, Object3D, Quaternion, Vector3, type Material, type Mesh } from 'three';
 import { addStump } from '../characters/flesh';
+import {
+  buildApron,
+  buildAxe,
+  buildBandolier,
+  buildChainsaw,
+  buildDynamite,
+  buildHood,
+  buildParasite,
+  buildPitchfork,
+  buildShield,
+  type DynamiteModel,
+  type ParasiteModel,
+  type ShieldModel,
+} from '../characters/enemyParts';
 import { buildTool, type ToolKind } from '../characters/handheld';
-import { zombieLook, type CharacterLook } from '../characters/looks';
+import { zombieLook, type CharacterLook, type LookVariant } from '../characters/looks';
 import { buildRig, JOINTS, PoseBlender, type Euler3, type JointName, type Pose, type Rig } from '../characters/rig';
+import { ShieldState } from '../combat/ballistics';
 import type { HitResult, LimbSegment, LimbZone, TargetState, Zone } from '../combat/damage';
 import type { Openness } from '../combat/melee';
 import { tuning } from '../config/tuning';
 import { seededRandom } from '../world/textures';
-import { kindStats, type EnemyKind, type KindStats } from './kinds';
+import { isElite, kindStats, type EnemyKind, type KindStats } from './kinds';
 import type { World } from '../world/world';
 
 export type ZombieState =
@@ -35,6 +50,13 @@ export type ZombieState =
   | 'clawWindup'
   | 'claw'
   | 'carried'
+  | 'mutate'
+  | 'whipWindup'
+  | 'whip'
+  | 'throwWindup'
+  | 'lightFuse'
+  | 'throwing'
+  | 'blinded'
   | 'dying'
   | 'dead';
 
@@ -42,7 +64,10 @@ export type ZombieState =
 export type ZombieBehavior = 'hunt' | 'stand' | 'walk' | 'pace' | 'run';
 
 /** Ways a zombie can attack the player. */
-export type AttackKind = 'swing' | 'grab' | 'claw';
+export type AttackKind = 'swing' | 'grab' | 'claw' | 'chainsaw' | 'whip';
+
+/** Things an enemy can throw at you. */
+export type ThrownKind = 'axe' | 'dynamite';
 
 /** What happened when an attack reached the player. */
 export type AttackOutcome = 'hit' | 'grabbed' | 'parried' | 'perfect' | 'blocked';
@@ -59,6 +84,8 @@ export interface ZombieVoice {
   bodyFall(pos: Vector3): void;
   swing(pos: Vector3): void;
   shuffle(pos: Vector3): void;
+  /** The chainsaw engine (call it often; `level` 1 is revving hard). */
+  rev(pos: Vector3, level: number): void;
 }
 
 /** What a zombie needs to know about the rest of the game. */
@@ -85,6 +112,12 @@ export interface ZombieHost {
   spotted(zombie: Zombie): void;
   /** A held tool was knocked loose and should tumble to the ground. */
   dropProp(prop: Object3D, velocity: Vector3, spin: Vector3): void;
+  /** Are there too many things in the air already for another throw? */
+  canThrow(): boolean;
+  /** Throws an axe or lit dynamite at the player from `from`. `fuse` is the dynamite's time left. */
+  launchThrown(zombie: Zombie, what: ThrownKind, from: Vector3, fuse: number): void;
+  /** A lit stick of dynamite falls at `at` (shot out of a hand, or dropped by a body). */
+  dropLitDynamite(at: Vector3, fuse: number): void;
 }
 
 const RADIUS = 0.33;
@@ -140,6 +173,15 @@ export class Zombie {
   onDeath: ((zombie: Zombie) => void) | null = null;
   /** Blown to pieces (nothing left to draw). */
   gibbed = false;
+  /** The plank shield of a Plank-bearer (null for everyone else, or once it has broken off). */
+  shield: ShieldState | null = null;
+  /** A parasite has burst out of the neck. */
+  parasite = false;
+  parasiteHealth = 0;
+  /** Seconds left of burning. */
+  burning = 0;
+  /** What it throws, if anything. */
+  throws: ThrownKind | null = null;
 
   private readonly blender = new PoseBlender();
   private readonly rand: () => number;
@@ -174,6 +216,15 @@ export class Zombie {
   private readonly wanderTarget = new Vector3();
   private wanderWait = 0;
   private wandering = false;
+  private shieldModel: ShieldModel | null = null;
+  private parasiteModel: ParasiteModel | null = null;
+  private saw: Object3D | null = null;
+  private dynamite: DynamiteModel | null = null;
+  private dynamiteFuse = 0;
+  private throwCooldown: number;
+  private rearmTimer = 0;
+  private revTimer = 0;
+  private hostRef: ZombieHost | null = null;
 
   constructor(
     seed: number,
@@ -186,10 +237,13 @@ export class Zombie {
     this.rand = seededRandom(seed * 31 + 7);
     this.kind = opts.kind ?? 'shambler';
     this.stats = kindStats(this.kind);
-    this.look = zombieLook(seed);
+    const variant: LookVariant = this.kind === 'brute' ? 'brute' : this.kind === 'chainsaw' ? 'sawyer' : this.kind === 'runner' ? 'runner' : 'normal';
+    this.look = zombieLook(seed, variant);
     this.rig = buildRig(this.look);
     this.rig.root.scale.multiplyScalar(this.stats.size);
     this.aware = opts.aware ?? false;
+    this.throwCooldown = 0.5 + this.rand() * 2;
+    this.dressForKind();
     this.rig.root.userData.zombie = this;
     for (const part of this.rig.parts) part.userData.zombie = this;
     this.position.set(x, 0, z);
@@ -203,7 +257,7 @@ export class Zombie {
     this.groanTimer = 1 + this.rand() * tuning.zombie.groanInterval;
     this.paceDir = this.rand() < 0.5 ? 1 : -1;
     this.phase = this.rand() * Math.PI * 2;
-    if (opts.holdsTool) {
+    if (opts.holdsTool && this.kind === 'shambler') {
       const kind: ToolKind = this.rand() < 0.6 ? 'sickle' : 'club';
       this.tool = buildTool(kind);
       this.rig.handR.add(this.tool);
@@ -213,6 +267,50 @@ export class Zombie {
     this.syncTransform();
     this.prevPosition.copy(this.position);
     this.prevYaw = this.yaw;
+  }
+
+  /** Gives each kind its gear: tools, shield, bandolier, chainsaw, hood. */
+  private dressForKind(): void {
+    const spine = this.rig.joints.spine;
+    switch (this.kind) {
+      case 'armed':
+        if (this.rand() < tuning.axeThrower.chance) {
+          this.throws = 'axe';
+          this.tool = buildAxe();
+        } else {
+          this.tool = buildPitchfork();
+        }
+        this.rig.handR.add(this.tool);
+        break;
+      case 'shield': {
+        const model = buildShield();
+        model.group.position.set(-0.06, 0.26, -0.2);
+        spine.add(model.group);
+        for (const plank of model.planks) this.rig.addPart(plank, 'shield');
+        this.shieldModel = model;
+        this.shield = new ShieldState(tuning.shieldBearer.shieldHealth);
+        break;
+      }
+      case 'dynamite': {
+        const bandolier = buildBandolier();
+        spine.add(bandolier);
+        this.throws = 'dynamite';
+        break;
+      }
+      case 'brute':
+        this.rig.joints.head.add(buildHood());
+        break;
+      case 'chainsaw': {
+        spine.add(buildApron());
+        const saw = buildChainsaw();
+        saw.position.set(0, -0.03, -0.02);
+        this.rig.handR.add(saw);
+        this.saw = saw;
+        break;
+      }
+      default:
+        break;
+    }
   }
 
   /** Moves the drawn body smoothly between game updates. */
@@ -275,24 +373,54 @@ export class Zombie {
   /** What the damage rules need to know right now. */
   get targetState(): TargetState {
     return {
-      health: this.health,
+      health: this.parasite ? this.parasiteHealth : this.health,
       invincible: this.invincible,
       running: this.state === 'run',
       downed: this.state === 'trip' || this.state === 'down' || this.state === 'knockdown' || this.state === 'downBack' || this.state === 'carried',
-      holdingWeapon: this.tool !== null,
-      windingUpThrow: false,
+      holdingWeapon: this.tool !== null || this.dynamite !== null,
+      windingUpThrow: this.state === 'throwWindup' || this.state === 'lightFuse',
       crawling: this.crawler,
+      heavy: isElite(this.kind),
+      parasite: this.parasite,
+      canMutate: !isElite(this.kind) && !this.parasite,
     };
   }
 
   /** Which melee follow-up this zombie is open to. */
   get openTo(): Openness {
     if (!this.alive) return null;
-    if (this.state === 'headStagger') return 'head';
+    if (this.state === 'headStagger' || this.state === 'blinded') return 'head';
     if (this.state === 'kneel') return 'kneel';
     if (this.state === 'down' || this.state === 'downBack') return 'down';
     if (this.crawler && this.state !== 'crawlFall') return 'down';
+    // A standing Plank-bearer holding up its shield: a kick breaks it.
+    if (this.hasShield && ['idle', 'walk', 'run', 'spot', 'windup', 'swing', 'recover', 'parried', 'armFlinch'].includes(this.state)) return 'shield';
     return null;
+  }
+
+  /** Is the shield still up? */
+  get hasShield(): boolean {
+    return this.shield !== null && !this.shield.broken;
+  }
+
+  /** The gun, a kick or a blast has hurt the shield. Returns true if that broke it. */
+  shieldHit(damage: number): boolean {
+    return this.shield ? this.shield.hit(damage) : false;
+  }
+
+  /** The shield splinters and comes off. Returns the loose shield for the gore system to fling. */
+  breakShield(): Object3D | null {
+    const model = this.shieldModel;
+    if (!model) return null;
+    this.shieldModel = null;
+    if (this.shield && !this.shield.broken) this.shield.hit(this.shield.hp + 1);
+    for (const plank of model.planks) {
+      const i = this.rig.parts.indexOf(plank);
+      if (i >= 0) this.rig.parts.splice(i, 1);
+      delete plank.userData.zombie;
+    }
+    model.group.updateWorldMatrix(true, true);
+    return model.group;
   }
 
   /** Is it turned away from `from` (so a suplex is possible)? */
@@ -341,6 +469,8 @@ export class Zombie {
     this.stateDuration = duration;
     if ((state === 'dying' || state === 'dead') && !this.deathReported) {
       this.deathReported = true;
+      // A lit stick of dynamite falls where it stood.
+      if (this.dynamite && this.hostRef) this.dropDynamite(this.hostRef);
       this.onDeath?.(this);
     }
   }
@@ -415,7 +545,9 @@ export class Zombie {
   /** React to a bullet (or kick, or blast). `dir` is the direction the hit was travelling. */
   applyHit(hit: HitResult, dir: Vector3, voice: ZombieVoice, host: ZombieHost): void {
     if (!this.alive) return;
-    this.health = hit.healthAfter;
+    this.hostRef = host;
+    if (this.parasite) this.parasiteHealth = hit.healthAfter;
+    else this.health = hit.healthAfter;
     this.aware = true;
     this.alertDelay = -1;
     const fromFront = this.forward(fwd).dot(dir) < 0;
@@ -424,6 +556,9 @@ export class Zombie {
     this.kickFor(hit.zone, away, side);
 
     if (hit.dropWeapon) this.dropTool(dir, host);
+    if (hit.cancelThrow && (this.state === 'throwWindup' || this.state === 'lightFuse')) {
+      this.setState('armFlinch', tuning.reactions.armFlinchTime);
+    }
     // Shoved back about `knockback` metres (a big blast is capped so it can't fly too far).
     if (hit.knockback > 0 && this.state !== 'carried') {
       this.knock.addScaledVector(tmp.set(dir.x, 0, dir.z).normalize(), Math.min(hit.knockback, 2.2) * 6);
@@ -432,6 +567,9 @@ export class Zombie {
     const r = tuning.reactions;
     switch (hit.reaction) {
       case 'death':
+        this.health = 0;
+        this.parasiteHealth = 0;
+        this.endThrowGear(host);
         if (this.lying || this.state === 'carried') {
           this.dieOnGround();
         } else {
@@ -443,8 +581,11 @@ export class Zombie {
         if (!this.headless) voice.deathCry(this.chestPosition(tmp), this.voicePitch);
         break;
       case 'headStagger':
-        this.setState('headStagger', r.headStaggerTime);
+        this.setState('headStagger', this.kind === 'brute' ? tuning.brute.staggerTime : r.headStaggerTime);
         voice.grunt(this.chestPosition(tmp), this.voicePitch);
+        break;
+      case 'mutate':
+        this.beginMutation(voice);
         break;
       case 'kneel':
         this.kneelSide = hit.zone === 'legL' ? 'L' : 'R';
@@ -495,6 +636,13 @@ export class Zombie {
   private kickFor(zone: Zone, away: number, side: number): void {
     const b = this.blender;
     switch (zone) {
+      case 'parasite':
+        b.kick('neck', 6 * away, 0, 3 * side);
+        b.kick('spine', 3 * away, 0, 0);
+        break;
+      case 'shield':
+        b.kick('spine', 1.5 * away, 0, 0);
+        break;
       case 'head':
         b.kick('head', 9 * away, 0, -3 * side);
         b.kick('neck', 4 * away, 0, 0);
@@ -522,8 +670,31 @@ export class Zombie {
     }
   }
 
+  /** Gets rid of anything it was about to throw (killed, blinded or mutated mid-throw). */
+  private endThrowGear(host: ZombieHost): void {
+    if (this.dynamite) this.dropDynamite(host);
+  }
+
+  /** The lit stick in its hand falls at its feet and goes off when the fuse runs out. */
+  private dropDynamite(host: ZombieHost): void {
+    const d = this.dynamite;
+    if (!d) return;
+    this.dynamite = null;
+    d.group.getWorldPosition(tmp);
+    host.dropLitDynamite(tmp, Math.max(0.6, this.dynamiteFuse));
+    d.group.removeFromParent();
+    d.group.traverse((o) => {
+      if ((o as Mesh).isMesh) (o as Mesh).geometry.dispose();
+    });
+  }
+
   private dropTool(dir: Vector3, host: ZombieHost): void {
+    if (this.dynamite) this.dropDynamite(host);
     if (!this.tool) return;
+    if (this.throws === 'axe') {
+      this.throws = null; // disarmed for good: it fights with its fists now
+      this.rearmTimer = 0;
+    }
     const tool = this.tool;
     this.tool = null;
     tool.updateWorldMatrix(true, false);
@@ -570,7 +741,11 @@ export class Zombie {
     const j = this.rig.joints[jointName];
     const parent = j.parent;
     if (!parent) return null;
-    if (arm && s === 'R' && this.tool) this.tool = null; // the tool goes with the hand
+    if (arm && s === 'R' && this.tool) {
+      this.tool = null; // the tool goes with the hand
+      if (this.throws === 'axe') this.throws = null;
+    }
+    if (arm && s === 'R' && this.dynamite) this.dynamite = null;
     this.missing.set(zone, segment);
 
     const leaving = new Set<Object3D>();
@@ -602,6 +777,80 @@ export class Zombie {
     this.rig.parts.length = 0;
     this.setState('dead');
     this.stateTime = tuning.zombie.corpseTime + 2; // removed straight away
+  }
+
+  // -------------------------------------------------------------------------
+  // Parasite, flash and fire
+
+  /** The head is gone but something else bursts out of the neck. */
+  private beginMutation(voice: ZombieVoice): void {
+    if (this.parasite) return;
+    this.parasite = true;
+    this.parasiteHealth = tuning.parasite.health;
+    const model = buildParasite();
+    model.group.position.set(0, 0.06, 0);
+    model.group.scale.setScalar(0.25);
+    for (const m of model.core) {
+      this.rig.addPart(m, 'parasite');
+      m.userData.zombie = this;
+    }
+    this.rig.joints.neck.add(model.group);
+    this.parasiteModel = model;
+    this.aware = true;
+    this.setState('mutate', tuning.parasite.mutateTime);
+    voice.roar(this.chestPosition(tmp), this.voicePitch * 0.7);
+  }
+
+  /** A flash grenade went off: blinded and helpless, or (for a parasite) killed outright. */
+  flash(seconds: number, host: ZombieHost): void {
+    if (!this.alive || this.state === 'carried' || this.state === 'grabbing') return;
+    this.hostRef = host;
+    this.endThrowGear(host);
+    if (this.parasite) {
+      this.parasiteHealth = 0;
+      this.health = 0;
+      this.fallDir = 1;
+      this.setState('dying');
+      host.voice.deathCry(this.chestPosition(tmp), this.voicePitch * 0.7);
+      return;
+    }
+    if (this.lying) return; // already on the ground: it just stays there
+    this.aware = true;
+    this.setState('blinded', isElite(this.kind) ? seconds * 0.5 : seconds);
+    host.voice.grunt(this.chestPosition(tmp), this.voicePitch * 1.2);
+  }
+
+  /** Sets it on fire (it keeps burning for a while after leaving the flames). */
+  ignite(): void {
+    if (!this.alive) return;
+    this.burning = Math.max(this.burning, tuning.grenades.burnTime);
+  }
+
+  /** Hurt directly (fire); kills it if that was the last of its health. */
+  private burnDamage(amount: number, host: ZombieHost): void {
+    if (this.invincible || !this.alive) return;
+    if (this.parasite) this.parasiteHealth -= amount;
+    else this.health -= amount;
+    if ((this.parasite ? this.parasiteHealth : this.health) > 0) return;
+    this.health = 0;
+    this.parasiteHealth = 0;
+    this.endThrowGear(host);
+    if (this.state === 'carried') return;
+    if (this.lying) {
+      this.dieOnGround();
+    } else {
+      this.fallDir = 1;
+      this.fallRoll = (this.rand() - 0.5) * 0.8;
+      this.setState('dying');
+    }
+    host.voice.deathCry(this.chestPosition(tmp), this.voicePitch);
+  }
+
+  /** Standing in flames (called each update by the game). */
+  inFire(dt: number, host: ZombieHost): void {
+    if (!this.alive) return;
+    this.ignite();
+    this.burnDamage(tuning.grenades.fireDamage * dt, host);
   }
 
   // -------------------------------------------------------------------------
@@ -700,7 +949,7 @@ export class Zombie {
         break;
       case 'perfect':
         // A perfect parry knocks its arms wide and stuns it: kick it!
-        this.setState('headStagger', tuning.reactions.headStaggerTime);
+        this.setState('headStagger', this.kind === 'chainsaw' ? tuning.chainsaw.perfectParryStun : tuning.reactions.headStaggerTime);
         break;
       case 'parried':
         this.setState('parried', 0.7);
@@ -716,9 +965,16 @@ export class Zombie {
   update(dt: number, host: ZombieHost): void {
     this.prevPosition.copy(this.position);
     this.prevYaw = this.yaw;
+    this.hostRef = host;
     this.stateTime += dt;
     this.flinchTimer = Math.max(0, this.flinchTimer - dt);
     this.attackCooldown = Math.max(0, this.attackCooldown - dt);
+    this.throwCooldown = Math.max(0, this.throwCooldown - dt);
+    if (this.burning > 0 && this.alive) {
+      this.burning = Math.max(0, this.burning - dt);
+      this.burnDamage(tuning.grenades.burnDamage * dt, host);
+    }
+    this.rearm(dt);
     const z = tuning.zombie;
     const r = tuning.reactions;
     toPlayer.subVectors(host.playerPosition, this.position).setY(0);
@@ -754,7 +1010,7 @@ export class Zombie {
       case 'windup':
         wantYaw = yawToPlayer;
         turnRate *= 0.6;
-        if (this.stateTime >= z.attackWindup) {
+        if (this.stateTime >= this.windupTime()) {
           this.setState('swing', 0.32);
           this.attackResolved = false;
           host.voice.swing(this.chestPosition(tmp));
@@ -765,8 +1021,8 @@ export class Zombie {
           this.attackResolved = true;
           this.finishedAttack();
           const facing = Math.abs(angleDiff(this.yaw, yawToPlayer));
-          if (distToPlayer < z.attackRange + 0.45 && facing < MathUtils.degToRad(55)) {
-            const outcome = host.attackPlayer(this, 'swing');
+          if (distToPlayer < this.reach() + 0.45 && facing < MathUtils.degToRad(55)) {
+            const outcome = host.attackPlayer(this, this.kind === 'chainsaw' ? 'chainsaw' : 'swing');
             if (outcome !== 'hit' && outcome !== 'blocked') {
               this.afterAttack(outcome);
               break;
@@ -905,6 +1161,62 @@ export class Zombie {
         }
         if (this.stateTime >= this.stateDuration) this.setState('crawl');
         break;
+      case 'mutate':
+        // Writhes while the parasite grows out of the neck.
+        wantYaw = yawToPlayer;
+        turnRate *= 0.3;
+        if (this.stateTime >= this.stateDuration) this.resumeDefault();
+        break;
+      case 'whipWindup':
+        wantYaw = yawToPlayer;
+        turnRate *= 0.7;
+        if (this.stateTime >= tuning.parasite.whipWindup) {
+          this.setState('whip', 0.42);
+          this.attackResolved = false;
+          host.voice.swing(this.chestPosition(tmp));
+        }
+        break;
+      case 'whip':
+        if (!this.attackResolved && this.stateTime >= 0.12) {
+          this.attackResolved = true;
+          this.finishedAttack();
+          const facing = Math.abs(angleDiff(this.yaw, yawToPlayer));
+          if (distToPlayer < tuning.parasite.whipRange + 0.3 && facing < MathUtils.degToRad(50)) {
+            const outcome = host.attackPlayer(this, 'whip');
+            if (outcome !== 'hit' && outcome !== 'blocked') {
+              this.afterAttack(outcome);
+              break;
+            }
+          }
+        }
+        if (this.stateTime >= this.stateDuration) this.setState('recover', z.attackRecover * 0.7);
+        break;
+      case 'throwWindup':
+        wantYaw = yawToPlayer;
+        turnRate *= 0.8;
+        if (this.stateTime >= tuning.axeThrower.windup) this.releaseThrow(host, 'axe');
+        break;
+      case 'lightFuse':
+        wantYaw = yawToPlayer;
+        turnRate *= 0.8;
+        if (this.dynamite) {
+          this.dynamiteFuse = Math.max(0.6, tuning.dynamiteThrower.fuse - this.stateTime);
+          this.dynamite.spark.visible = this.stateTime > tuning.dynamiteThrower.lightTime * 0.35;
+        }
+        if (this.stateTime >= tuning.dynamiteThrower.lightTime) this.releaseThrow(host, 'dynamite');
+        break;
+      case 'throwing':
+        wantYaw = yawToPlayer;
+        if (this.stateTime >= this.stateDuration) this.resumeDefault();
+        break;
+      case 'blinded': {
+        // Stumbles about with its hands over its eyes.
+        wantYaw = this.yaw + Math.sin(this.stateTime * 2.1 + this.id) * 1.4;
+        wantSpeed = 0.7;
+        turnRate *= 0.5;
+        if (this.stateTime >= this.stateDuration) this.resumeDefault();
+        break;
+      }
       case 'dying':
         if (this.stateTime >= 0.75) {
           this.setState('dead');
@@ -948,6 +1260,13 @@ export class Zombie {
       this.stepTimer = stride * 0.5;
       host.voice.shuffle(this.position);
     }
+    if (this.kind === 'chainsaw' && this.alive) {
+      this.revTimer -= dt;
+      if (this.revTimer <= 0) {
+        this.revTimer = 0.42;
+        host.voice.rev(this.chestPosition(tmp), this.state === 'windup' || this.state === 'swing' ? 1 : 0);
+      }
+    }
     if (this.alive && !this.headless) {
       this.groanTimer -= dt;
       if (this.groanTimer <= 0) {
@@ -957,12 +1276,44 @@ export class Zombie {
     }
 
     const pose = this.pose(this.stateTime);
-    const snappy = ['headStagger', 'armFlinch', 'swing', 'trip', 'knockdown', 'lunge', 'parried', 'claw', 'crawlFall'].includes(this.state);
+    const snappy = ['headStagger', 'armFlinch', 'swing', 'trip', 'knockdown', 'lunge', 'parried', 'claw', 'crawlFall', 'whip', 'throwing', 'mutate'].includes(this.state);
     const rate = snappy ? 16 : this.state === 'dying' ? 14 : this.state === 'getUp' ? 5 : 9;
     const falling = ['dying', 'dead', 'trip', 'down', 'knockdown', 'downBack', 'crawlFall'].includes(this.state);
     const bodyRate = falling ? 30 : rate;
     this.blender.update(pose, dt, rate, bodyRate);
     this.syncTransform();
+    if (this.parasiteModel) this.animateParasite();
+  }
+
+  /** The parasite's stalk writhes, its jaws snap and its tentacle lashes. */
+  private animateParasite(): void {
+    const m = this.parasiteModel!;
+    const t = this.stateTime + this.id;
+    const grow = this.state === 'mutate' ? Math.min(1, this.stateTime / Math.max(0.1, this.stateDuration)) : 1;
+    const eased = 1 - (1 - grow) * (1 - grow);
+    m.group.scale.setScalar((0.25 + 0.75 * eased) * 1.5);
+    const angry = this.state === 'whipWindup' || this.state === 'whip' || this.state === 'mutate' ? 1.6 : 1;
+    m.segments.forEach((seg, i) => {
+      seg.rotation.x = Math.sin(performance.now() * 0.004 * angry + i * 1.1 + this.id) * 0.28 * angry - 0.1;
+      seg.rotation.z = Math.cos(performance.now() * 0.0033 * angry + i * 0.9 + this.id) * 0.25 * angry;
+    });
+    const open = 0.35 + 0.3 * Math.sin(performance.now() * 0.009 * angry + this.id) + (this.state === 'whipWindup' ? 0.5 : 0);
+    m.jawTop.rotation.x = -open * 0.6;
+    m.jawBottom.rotation.x = open * 0.6;
+    m.tentacles.forEach((tent, i) => {
+      tent.children.forEach((c, k) => {
+        c.rotation.z = Math.sin(performance.now() * 0.006 * angry + k * 0.8 + i * 2 + t) * 0.35;
+      });
+    });
+    const lashing = this.state === 'whip' || this.state === 'whipWindup';
+    m.whip.visible = lashing;
+    if (lashing) {
+      const u = this.state === 'whip' ? Math.min(1, this.stateTime / 0.14) : 0.1;
+      m.whip.scale.set(1, 1, Math.max(0.05, u * tuning.parasite.whipRange));
+      m.whip.rotation.x = this.state === 'whip' ? 0.35 - 0.5 * Math.min(1, this.stateTime / 0.3) : 0.9;
+      m.whip.rotation.y = this.state === 'whip' ? 0.6 - 1.2 * Math.min(1, this.stateTime / 0.3) : 0;
+      m.whip.position.y = 0.3;
+    }
   }
 
   /** Decides where to go and how fast while walking, running or standing. */
@@ -990,18 +1341,26 @@ export class Zombie {
         if (!practice && (!host.playerAlive || !this.aware)) return this.wander(dt);
         const ai = tuning.ai;
         const hasToken = practice || host.hasToken(this);
-        const sp = this.stats.speed;
+        const sp = this.stats.speed * (this.parasite ? tuning.parasite.speed : 1);
+        // Throwers stop at a distance and throw.
+        if (!practice && this.tryThrow(dist, yawToPlayer, host)) return { wantSpeed: 0, wantYaw: yawToPlayer };
         // It's this zombie's turn and it is close enough: attack.
-        if (hasToken && (practice || this.attackCooldown <= 0) && dist < z.attackRange && Math.abs(angleDiff(this.yaw, yawToPlayer)) < 0.6) {
+        if (hasToken && (practice || this.attackCooldown <= 0) && dist < this.reach() && Math.abs(angleDiff(this.yaw, yawToPlayer)) < 0.6) {
+          if (this.parasite) {
+            this.setState('whipWindup');
+            host.voice.roar(this.chestPosition(tmp), this.voicePitch * 0.7);
+            return { wantSpeed: 0, wantYaw: yawToPlayer };
+          }
           // Both hands free: sometimes it lunges to grab instead of swinging.
-          const grab = this.armsFree === 2 && !this.tool && this.rand() < tuning.grab.chance && host.canGrab(this);
+          const grabber = this.kind === 'shambler' || this.kind === 'runner';
+          const grab = grabber && this.armsFree === 2 && !this.tool && this.rand() < tuning.grab.chance && host.canGrab(this);
           this.setState(grab ? 'grabWindup' : 'windup');
           host.voice.roar(this.chestPosition(tmp), this.voicePitch);
           return { wantSpeed: 0, wantYaw: yawToPlayer };
         }
         if (this.behavior === 'hunt') {
           const runner = this.kind === 'runner';
-          const far = dist > (runner ? 3 : 6);
+          const far = dist > (runner ? 3 : 6) && !this.parasite && !isElite(this.kind) && !this.hasShield && this.kind !== 'dynamite';
           if (this.state === 'walk' && far && (hasToken || dist > ai.ringRadius + 4) && this.rand() < (runner ? 0.9 : z.runChance) * dt) {
             this.setState('run', runner ? 2.6 : z.runDuration);
           }
@@ -1024,7 +1383,7 @@ export class Zombie {
           } else if (dist < ai.ringRadius) {
             return { wantSpeed: 0, wantYaw: yawToPlayer };
           }
-        } else if (dist < z.attackRange * 0.8) {
+        } else if (dist < this.reach() * 0.8) {
           return { wantSpeed: 0, wantYaw: yawToPlayer };
         }
         // Straight there if nothing is in the way; otherwise round the obstacles.
@@ -1037,6 +1396,76 @@ export class Zombie {
         }
         return { wantSpeed: speed, wantYaw: Math.atan2(-dx, -dz) };
       }
+    }
+  }
+
+  /** How long it winds up before an attack. */
+  private windupTime(): number {
+    if (this.kind === 'chainsaw') return tuning.chainsaw.windup;
+    if (this.kind === 'brute') return tuning.brute.windup;
+    return tuning.zombie.attackWindup;
+  }
+
+  /** How close it must be to make its attack. */
+  private reach(): number {
+    if (this.parasite) return tuning.parasite.whipRange * 0.92;
+    if (this.kind === 'brute') return tuning.brute.swingRange;
+    if (this.kind === 'chainsaw') return tuning.chainsaw.reach;
+    return tuning.zombie.attackRange;
+  }
+
+  /** If it is a thrower and the player is in range, starts the throw. */
+  private tryThrow(dist: number, yawToPlayer: number, host: ZombieHost): boolean {
+    if (!this.throws || !this.aware || !host.playerAlive || this.throwCooldown > 0 || this.parasite) return false;
+    if (this.behavior !== 'hunt') return false;
+    const range = this.throws === 'axe' ? tuning.axeThrower : tuning.dynamiteThrower;
+    if (dist < range.minRange || dist > range.maxRange) return false;
+    if (this.throws === 'axe' && !this.tool) return false;
+    if (Math.abs(angleDiff(this.yaw, yawToPlayer)) > 0.5) return false;
+    if (!host.canThrow() || !host.lineClear(this.position, host.playerPosition)) return false;
+    if (this.throws === 'axe') {
+      this.setState('throwWindup');
+    } else {
+      const d = buildDynamite(false);
+      this.rig.handR.add(d.group);
+      this.dynamite = d;
+      this.dynamiteFuse = tuning.dynamiteThrower.fuse;
+      this.setState('lightFuse');
+    }
+    host.voice.grunt(this.chestPosition(tmp), this.voicePitch);
+    return true;
+  }
+
+  /** The axe or dynamite leaves the hand. */
+  private releaseThrow(host: ZombieHost, what: ThrownKind): void {
+    this.throwCooldown = (what === 'axe' ? tuning.axeThrower.cooldown : tuning.dynamiteThrower.cooldown) * (0.8 + this.rand() * 0.5);
+    if (what === 'axe') {
+      if (this.tool) {
+        this.rig.handR.getWorldPosition(tmp);
+        host.launchThrown(this, 'axe', tmp.clone(), 0);
+        this.dropToolQuietly();
+        this.rearmTimer = tuning.axeThrower.cooldown;
+      }
+    } else if (this.dynamite) {
+      this.dynamite.group.getWorldPosition(tmp);
+      host.launchThrown(this, 'dynamite', tmp.clone(), this.dynamiteFuse);
+      this.dynamite.group.removeFromParent();
+      this.dynamite.group.traverse((o) => {
+        if ((o as Mesh).isMesh) (o as Mesh).geometry.dispose();
+      });
+      this.dynamite = null;
+    }
+    host.voice.swing(this.chestPosition(tmp));
+    this.setState('throwing', 0.4);
+  }
+
+  /** An axe thrower picks up another axe after a while. */
+  private rearm(dt: number): void {
+    if (this.throws !== 'axe' || this.tool || this.rearmTimer <= 0 || !this.alive) return;
+    this.rearmTimer -= dt;
+    if (this.rearmTimer <= 0 && !this.missing.has('armR')) {
+      this.tool = buildAxe();
+      this.rig.handR.add(this.tool);
     }
   }
 
@@ -1096,6 +1525,18 @@ export class Zombie {
         j.shoulderR = [0.25 + 0.25 * swing * s, 0, 0.08];
         j.elbowR = [0.45, 0, 0];
         j.wristR = [0.3, 0, 0];
+      }
+      if (this.saw) {
+        // Both hands out in front, holding the saw level.
+        j.shoulderR = [1.1, 0, -0.15];
+        j.elbowR = [0.55, 0, 0];
+        j.shoulderL = [1.0, 0, 0.35];
+        j.elbowL = [0.9, 0, 0];
+      }
+      if (this.shieldModel) {
+        // The left arm holds the shield up in front of the chest.
+        j.shoulderL = [0.55, 0, 0.1];
+        j.elbowL = [1.5, 0, 0];
       }
     };
 
@@ -1353,6 +1794,105 @@ export class Zombie {
         break;
       }
 
+      case 'mutate': {
+        // Convulses, head thrown back, while the parasite grows.
+        const u = Math.min(1, t / Math.max(0.01, this.stateDuration));
+        const fit = Math.sin(t * 28);
+        j.spine = [0.25 + 0.2 * fit, 0.3 * Math.sin(t * 17), 0.2 * Math.sin(t * 23)];
+        j.neck = [-0.5 + 0.3 * fit, 0, 0];
+        j.head = [-0.4, 0, 0];
+        j.shoulderL = [1.9 + 0.8 * fit, 0, -0.8 - 0.3 * u];
+        j.shoulderR = [1.9 - 0.8 * fit, 0, 0.8 + 0.3 * u];
+        j.elbowL = [0.8, 0, 0];
+        j.elbowR = [0.8, 0, 0];
+        j.hipL = [0.2 * fit, 0, 0];
+        j.hipR = [-0.2 * fit, 0, 0];
+        j.kneeL = [-0.5, 0, 0];
+        j.kneeR = [-0.5, 0, 0];
+        pose.hipsY = -0.12 - 0.04 * fit;
+        break;
+      }
+
+      case 'whipWindup':
+      case 'whip': {
+        // Rears back, then lashes forward.
+        const lash = this.state === 'whip' ? Math.min(1, t / 0.2) : 0;
+        j.spine = [0.3 * (1 - lash) - 0.35 * lash - hunch, 0, 0];
+        j.neck = [-0.3 + 0.5 * lash, 0, 0];
+        j.shoulderL = [0.25, 0, -0.35];
+        j.shoulderR = [0.25, 0, 0.35];
+        j.elbowL = [0.3, 0, 0];
+        j.elbowR = [0.3, 0, 0];
+        j.hipL = [0.3, 0, 0];
+        j.hipR = [-0.25, 0, 0];
+        j.kneeL = [-0.3, 0, 0];
+        j.kneeR = [-0.3, 0, 0];
+        pose.hipsY = -0.06;
+        break;
+      }
+
+      case 'throwWindup': {
+        // Axe raised high behind the head.
+        const u = Math.min(1, t / Math.max(0.01, tuning.axeThrower.windup));
+        j.spine = [-0.1 - 0.25 * u, 0, 0];
+        j.neck = [0.1, 0, 0];
+        j.head = [0.2, 0, 0];
+        j.shoulderR = [2.9 * u, 0, -0.1];
+        j.elbowR = [1.4 * (1 - u * 0.4), 0, 0];
+        j.wristR = [0.4, 0, 0];
+        j.shoulderL = [1.1 * u, 0, 0.3];
+        j.elbowL = [0.5, 0, 0];
+        j.hipL = [0.15, 0, 0];
+        j.hipR = [-0.3, 0, 0];
+        j.kneeR = [-0.25, 0, 0];
+        break;
+      }
+
+      case 'lightFuse': {
+        // Holds the stick up in front of its face while it lights the fuse.
+        j.spine = [-hunch, 0, 0];
+        j.neck = [0.2, 0, 0];
+        j.head = [0.3, 0, 0];
+        j.shoulderR = [1.5, 0, -0.1];
+        j.elbowR = [1.5, 0, 0];
+        j.shoulderL = [1.2, 0, 0.25];
+        j.elbowL = [1.6, 0, 0];
+        legs(0, 0, 1);
+        break;
+      }
+
+      case 'throwing': {
+        const u = Math.min(1, t / 0.18);
+        j.spine = [-hunch - 0.5 * u, 0, 0];
+        j.neck = [0.2, 0, 0];
+        j.shoulderR = [2.9 - 2.3 * u, 0, -0.1];
+        j.elbowR = [0.4, 0, 0];
+        j.shoulderL = [0.5, 0, 0.3];
+        j.elbowL = [0.4, 0, 0];
+        j.hipL = [0.4, 0, 0];
+        j.hipR = [-0.3, 0, 0];
+        j.kneeL = [-0.25, 0, 0];
+        pose.hipsY = -0.06;
+        break;
+      }
+
+      case 'blinded': {
+        // Hands pressed over its eyes, reeling.
+        const reel = Math.sin(t * 7);
+        j.spine = [0.15, 0.15 * reel, 0.12 * reel];
+        j.neck = [0.3, 0, 0];
+        j.head = [0.3, 0, 0.2 * reel];
+        j.shoulderL = [2.4, 0, 0.3];
+        j.shoulderR = [2.4, 0, -0.3];
+        j.elbowL = [2.0, 0, 0];
+        j.elbowR = [2.0, 0, 0];
+        j.hipL = [0.3 * reel, 0, 0];
+        j.hipR = [-0.3 * reel, 0, 0];
+        j.kneeL = [-0.3, 0, 0];
+        j.kneeR = [-0.3, 0, 0];
+        break;
+      }
+
       case 'crawl':
         crawl(0);
         break;
@@ -1459,6 +1999,21 @@ export class Zombie {
         j.kneeR = [-0.5 * buckle * (1 - topple) - 0.4, 0, 0];
         break;
       }
+    }
+    if (this.saw && this.alive) {
+      // Keeps the saw's bar pointing the way the attack needs, whatever the arm is doing.
+      const total = (j.shoulderR?.[0] ?? 0) + (j.elbowR?.[0] ?? 0);
+      const pitch = this.state === 'windup' ? 0.9 : this.state === 'swing' ? -0.45 : 0.05;
+      j.wristR = [pitch - total, 0, 0];
+    }
+    if (this.parasite && !this.lying && !['mutate', 'whipWindup', 'whip', 'dying', 'dead', 'carried', 'getUp', 'kneel', 'headStagger'].includes(this.state)) {
+      // With a parasite for a head: arms hang limp, the body sags forward and sways.
+      j.spine = [0.12 + 0.08 * Math.sin(t * 2 + this.id), 0.2 * Math.sin(t * 1.3), 0.1 * Math.sin(t * 1.7)];
+      j.neck = [-0.1, 0, 0];
+      j.shoulderL = [0.1, 0, -0.35];
+      j.shoulderR = [0.1, 0, 0.35];
+      j.elbowL = [0.25, 0, 0];
+      j.elbowR = [0.25, 0, 0];
     }
     return pose;
   }

@@ -5,6 +5,7 @@ import {
   Color,
   ConeGeometry,
   CylinderGeometry,
+  DoubleSide,
   Group,
   Mesh,
   MeshStandardMaterial,
@@ -542,6 +543,57 @@ export class PropBuilder {
     board.userData.surface = 'wood';
     place(g, new BoxGeometry(0.9, 0.45, 0.05), board, 0, 1.45, 0.08);
     this.circleCollider(x, z, 0.12, 1.5);
+  }
+
+  /**
+   * The Trader's stall: a counter, back posts and a sagging canopy, with a lantern
+   * and wares on the counter. It opens towards local -z. Returns where the Trader
+   * stands (behind the counter) and where the customer stands (in front of it).
+   */
+  stall(parent: Object3D, x: number, z: number, rotY: number): { trader: { x: number; z: number }; customer: { x: number; z: number } } {
+    const g = new Group();
+    g.position.set(x, 0, z);
+    g.rotation.y = rotY;
+    parent.add(g);
+    const cos = Math.cos(rotY);
+    const sin = Math.sin(rotY);
+    const toWorld = (lx: number, lz: number) => ({ x: x + lx * cos + lz * sin, z: z - lx * sin + lz * cos });
+    // Counter with a plank front.
+    place(g, box(2.8, 1.0, 0.7, 1.2), this.mats.wood, 0, 0.5, -0.35);
+    place(g, box(3.0, 0.08, 0.9, 1.2), this.mats.darkWood, 0, 1.03, -0.4);
+    // Back posts and the canopy frame.
+    for (const sx of [-1.45, 1.45]) {
+      place(g, box(0.12, 2.6, 0.12), this.mats.darkWood, sx, 1.3, -0.75);
+      place(g, box(0.12, 2.2, 0.12), this.mats.darkWood, sx, 1.1, 1.55);
+    }
+    place(g, box(3.1, 0.1, 0.1), this.mats.darkWood, 0, 2.6, -0.75);
+    place(g, box(3.1, 0.1, 0.1), this.mats.darkWood, 0, 2.2, 1.55);
+    // Canopy cloth: a tilted sheet, sagging in the middle.
+    const cloth = new MeshStandardMaterial({ color: '#6a2f2a', roughness: 1, side: DoubleSide });
+    place(g, new BoxGeometry(3.3, 0.04, 2.5), cloth, 0, 2.42, 0.4, { rotX: -0.17, cast: true });
+    place(g, new BoxGeometry(3.3, 0.18, 0.04), cloth, 0, 2.3, -0.88, { rotX: 0 });
+    // Back wall of old planks so the figure stands against something.
+    place(g, box(2.9, 1.9, 0.08, 1.4), this.mats.darkWood, 0, 1.25, 1.62);
+    // Wares on the counter: crates, bottles, a rolled map and a lantern.
+    place(g, new BoxGeometry(0.4, 0.22, 0.3), this.mats.crate, -1.0, 1.18, -0.4, { rotY: 0.25 });
+    place(g, new BoxGeometry(0.3, 0.3, 0.3), this.mats.crate, -0.6, 1.22, -0.5, { rotY: -0.2 });
+    for (let i = 0; i < 3; i++) place(g, new CylinderGeometry(0.04, 0.05, 0.26, 8), this.mats.darkGlass, 0.5 + i * 0.14, 1.2, -0.42);
+    place(g, new CylinderGeometry(0.05, 0.05, 0.5, 8), this.mats.paint, 1.1, 1.1, -0.2, { rotZ: Math.PI / 2 });
+    place(g, new BoxGeometry(0.16, 0.2, 0.16), this.mats.metal, 0.05, 1.18, -0.45);
+    const glow = this.glowMaterial();
+    place(g, new BoxGeometry(0.12, 0.16, 0.12), glow, 0.05, 1.19, -0.45, { cast: false });
+    place(g, box(0.2, 0.03, 0.2), this.mats.metal, 0.05, 1.3, -0.45, { cast: false });
+    // A second lantern hanging from the canopy.
+    place(g, new CylinderGeometry(0.006, 0.006, 0.35, 4), this.mats.metal, -1.25, 2.4, -0.7, { cast: false });
+    place(g, new BoxGeometry(0.12, 0.18, 0.12), glow, -1.25, 2.1, -0.7, { cast: false });
+    const lampAt = toWorld(0.05, -0.45);
+    this.addLamp(parent, glow, new Vector3(lampAt.x, 1.7, lampAt.z), 1);
+    // Solid: the counter and the back wall.
+    const counter = toWorld(0, -0.35);
+    this.boxCollider(counter.x, counter.z, 2.9, 0.8, rotY, 1.1);
+    const back = toWorld(0, 1.62);
+    this.boxCollider(back.x, back.z, 3.0, 0.2, rotY, 2);
+    return { trader: toWorld(0, 0.9), customer: toWorld(0, -1.5) };
   }
 
   /** A rough wooden table. */

@@ -21,12 +21,18 @@ import {
 import { Horde } from '../ai/horde';
 import { Sfx } from '../audio/sfx';
 import { FallingProp } from '../characters/handheld';
+import { chainsawHit, solveThrow } from '../combat/ballistics';
 import { isLimb, resolveShot, zoneGroup, type HitResult, type LimbSegment, type LimbZone, type PelletHit, type Zone } from '../combat/damage';
 import { blastFalloff, GrabStruggle, judgeParry, MELEE_NAMES, pickMeleeTarget, type MeleeMove } from '../combat/melee';
 import { rollDrop, type Drop } from '../combat/drops';
 import { herbEffect, PlayerHealth } from '../combat/health';
 import { blastPush, falloff, randomInCone } from '../combat/pellets';
-import { WEAPONS } from '../combat/weapons';
+import { WEAPONS, weaponUpgrades } from '../combat/weapons';
+import { EXCLUSIVES, STAT_NAMES, UPGRADE_STATS } from '../combat/upgrades';
+import { TraderNpc } from '../characters/trader';
+import { Trader, tuningPrices } from '../inventory/shop';
+import { CaseScreen, type CaseHost } from '../ui/caseScreen';
+import { TraderScreen, type TraderUiHost } from '../ui/traderScreen';
 import { padButtonName, PAD } from '../config/controls';
 import { bloodScale, goreLevel, settings } from '../config/settings';
 import { tuning } from '../config/tuning';
@@ -34,11 +40,12 @@ import { showError } from '../debug/errorOverlay';
 import { FpsCounter } from '../debug/fpsCounter';
 import { TuningPanel } from '../debug/tuningPanel';
 import { isElite, type EnemyKind } from '../enemies/kinds';
-import { Zombie, type AttackKind, type AttackOutcome, type GrabRelease, type ZombieBehavior, type ZombieHost } from '../enemies/zombie';
+import { Zombie, type AttackKind, type AttackOutcome, type GrabRelease, type ThrownKind, type ZombieBehavior, type ZombieHost } from '../enemies/zombie';
 import { Effects } from '../fx/effects';
 import { GoreSystem } from '../fx/gore';
 import { Pickups, type Pickup } from '../fx/pickups';
-import { itemDef } from '../inventory/items';
+import { FireSystem, ThrownSystem, type Thrown, type ThrownHost } from '../fx/thrown';
+import { itemDef, type GrenadeKind } from '../inventory/items';
 import { chooseHealItem, Supplies } from '../inventory/supplies';
 import { EliteSchedule, WaveDirector } from '../modes/waves';
 import { NO_INPUT, Player, type MeleePhase, type PlayerHost, type PlayerInput } from '../player/player';
@@ -65,6 +72,8 @@ const ZONE_NAMES: Record<Zone, string> = {
   armR: 'RIGHT ARM',
   legL: 'LEFT LEG',
   legR: 'RIGHT LEG',
+  parasite: 'PARASITE',
+  shield: 'SHIELD',
 };
 
 function describeHit(hit: HitResult): string {
@@ -78,6 +87,7 @@ function describeHit(hit: HitResult): string {
     armFlinch: hit.dropWeapon ? 'arm knocked back, DROPPED its tool' : 'arm knocked back',
     knockdown: 'KNOCKED DOWN',
     legless: 'now CRAWLING',
+    mutate: 'HEAD BURST · a PARASITE bursts out of the neck!',
     death: hit.headPop
       ? `${hit.crit ? 'CRITICAL! ' : ''}${goreLevel() === 'off' ? 'KILLED OUTRIGHT' : 'HEAD BURST'}`
       : hit.overkill > 0
@@ -116,6 +126,26 @@ interface Barrel {
   /** Seconds until it goes off (-1 = not lit). */
   fuse: number;
 }
+
+/** How big and strong a blast is (a rocket or barrel, a frag grenade, a stick of dynamite). */
+interface BlastSpec {
+  radius: number;
+  damage: number;
+  gibRadius: number;
+  limbRadius: number;
+  push: number;
+  playerDamage: number;
+  playerPush: number;
+  size: number;
+}
+
+/** The speed that throws something `distance` metres in a pleasant arc (about 40 degrees), up to `max`. */
+function arcSpeed(distance: number, max: number): number {
+  return MathUtils.clamp(Math.sqrt((9.8 * Math.max(1, distance)) / 0.985) * 1.1, 6, max);
+}
+
+const GRENADE_NAMES: Record<GrenadeKind, string> = { frag: 'Frag', flash: 'Flash', fire: 'Incendiary' };
+const GRENADE_ORDER: GrenadeKind[] = ['frag', 'flash', 'fire'];
 
 /** Angle between two directions seen from above (ignoring up/down), in radians. */
 function angleBetweenFlat(a: Vector3, b: Vector3): number {
@@ -184,6 +214,20 @@ export class Game {
   private readonly reportedErrors = new Set<string>();
   private readonly zombieHost: ZombieHost;
   private readonly playerHost: PlayerHost;
+  private readonly thrown: ThrownSystem;
+  private readonly fires = new FireSystem();
+  private readonly thrownHost: ThrownHost;
+  /** The grenade type G throws (B changes it). */
+  private grenadeKind: GrenadeKind = 'frag';
+  private fireBurnTimer = 0;
+  private readonly caseScreen = new CaseScreen();
+  private readonly traderScreen = new TraderScreen();
+  private readonly traderNpc = new TraderNpc();
+  private readonly trader: Trader;
+  /** Which full-screen menu is open (the game is frozen while one is). */
+  private ui: 'case' | 'trader' | null = null;
+  private traderWasOpen = false;
+  private firePainTimer = 0;
   private colliderLines: LineSegments | null = null;
   private lastFrameTime = 0;
   private pixelRatio = 0;
@@ -251,6 +295,7 @@ export class Game {
     this.fx.onShellLand = (pos, kind) => this.sfx.shellLand(pos, kind);
     this.gore = new GoreSystem(this.scene, this.fx, (origin, dir, max) => this.world.raycast(origin, dir, max));
     this.pickups = new Pickups(this.scene);
+    this.thrown = new ThrownSystem(this.scene);
     this.player = new Player();
     this.scene.add(this.player.object);
     this.cam = new ShoulderCamera(this.camera);
@@ -262,6 +307,7 @@ export class Game {
     this.tuningPanel = new TuningPanel(tuning);
     this.tuningPanel.onChange((path) => this.onTuningChanged(path));
 
+    const self = this;
     this.zombieHost = {
       world: this.world,
       playerPosition: this.player.position,
@@ -285,6 +331,27 @@ export class Game {
         this.fallingProps.push(fp);
         if (this.fallingProps.length > 12) disposeObject(this.fallingProps.shift()!.object);
       },
+      canThrow: () => this.thrown.hostileCount < 2,
+      launchThrown: (z, what, from, fuse) => this.enemyThrow(z, what, from, fuse),
+      dropLitDynamite: (at, fuse) => {
+        this.thrown.launch('dynamite', at.clone().setY(at.y + 0.1), tmp.set(0, 1.5, 0), fuse, true);
+      },
+    };
+    this.thrownHost = {
+      raycast: (o, d, m) => this.world.raycast(o, d, m),
+      groundHeight: (x, z) => this.world.groundHeight(x, z),
+      axeReaches: (pos) => this.axeReaches(pos),
+      detonate: (t) => this.detonateThrown(t),
+      axeLanded: (pos, flesh) => {
+        this.sfx.axeThunk(pos, flesh);
+        if (flesh) this.fx.blood(pos, tmp.set(0, 0.3, 1), 0.6 * bloodScale(), this.world.groundHeight(pos.x, pos.z));
+        else this.fx.surfaceImpact(pos, UP, 'wood', 0.6);
+      },
+      bounced: (pos) => this.sfx.grenadeBounce(pos),
+      fuseSpark: (pos) => {
+        this.fx.flame(pos, 0.12);
+        if (Math.random() < 0.5) this.sfx.fuseHiss(pos);
+      },
     };
     this.playerHost = {
       fire: () => this.fireShot(),
@@ -306,7 +373,7 @@ export class Game {
       knifeSlash: () => this.knifeSlash(),
       meleeEvent: (move, phase) => this.meleeEvent(move, phase),
       healFinished: () => this.healFinished(),
-      throwGrenade: () => {},
+      throwGrenade: () => this.releaseGrenade(),
     };
     this.deathScreen.onChoose = (choice) => {
       this.deathScreen.hide();
@@ -314,6 +381,50 @@ export class Game {
       else this.goToMenu();
     };
     this.supplies.onChange = () => {};
+    this.scene.add(this.traderNpc.object);
+    this.trader = new Trader(
+      {
+        get coins() { return self.supplies.coins; },
+        set coins(v: number) { self.supplies.coins = v; },
+        items: () => this.supplies.items,
+        addItem: (kind, key) => {
+          const it = this.supplies.addNew(kind, key);
+          if (it && kind === 'weapon') this.player.give(key as 'pistol', tuning.trader.startAmmo);
+          return it !== null;
+        },
+        removeItem: (id) => {
+          const it = this.supplies.remove(id);
+          if (it?.kind === 'weapon') this.player.take(it.key as 'pistol');
+        },
+        weaponCount: () => this.supplies.items.filter((i) => i.kind === 'weapon').length,
+        ownsWeapon: (id) => this.supplies.items.some((i) => i.kind === 'weapon' && i.key === id),
+        weaponName: (id) => WEAPONS.find((w) => w.id === id)?.name ?? id,
+        ammo: (id) => {
+          const g = this.player.guns.find((x) => x.def.id === id);
+          return g && this.player.has(g.def.id) ? { reserve: g.reserve, max: g.stats.spareAmmo } : null;
+        },
+        addAmmo: (id, n) => {
+          const g = this.player.guns.find((x) => x.def.id === id)!;
+          const add = Math.min(n, g.stats.spareAmmo - g.reserve);
+          g.reserve += add;
+          return add;
+        },
+        knifeCondition: () => this.player.knife.condition,
+        repairKnife: () => this.player.knife.repair(),
+        caseTier: () => this.supplies.caseTier,
+        upgradeCase: () => this.supplies.upgradeCase(this.supplies.caseTier + 1),
+        upgrades: weaponUpgrades,
+      },
+      tuningPrices,
+      WEAPONS.map((w) => w.id),
+    );
+    this.caseScreen.onClose = () => this.closeUi();
+    this.traderScreen.onClose = () => this.closeUi();
+    this.traderScreen.onReady = () => {
+      this.waves.skipBreak();
+      this.closeUi();
+    };
+    this.traderScreen.onOpenCase = () => this.openCase();
 
     this.menu.onChoose = (choice) => this.choose(choice);
     document.addEventListener('pointerlockchange', () => this.onPointerLockChange());
@@ -373,6 +484,9 @@ export class Game {
     this.fallingProps.length = 0;
     for (const r of this.rockets) disposeObject(r.mesh);
     this.rockets.length = 0;
+    this.thrown.clear();
+    this.fires.clear();
+    this.fx.setFireLight(null, 0);
     this.gore.clear();
     this.pickups.clear();
     this.restoreBarrels();
@@ -398,6 +512,16 @@ export class Game {
     this.cam.pitch = -0.05;
     this.health.reset(tuning.health.max);
     this.supplies.clear();
+    this.supplies.unlimited = practice;
+    weaponUpgrades.reset();
+    this.player.knife.repair();
+    this.ui = null;
+    this.caseScreen.hide();
+    this.traderScreen.hide();
+    this.traderNpc.visible = false;
+    const tp = this.world.level.trader;
+    if (tp) this.traderNpc.place(tp.x, this.world.groundHeight(tp.x, tp.z), tp.z, tp.yaw);
+    if (!practice) this.supplies.addNew('weapon', 'pistol');
     this.healingItem = null;
     this.deathTimer = -1;
     this.runKills = 0;
@@ -418,10 +542,13 @@ export class Game {
     }
     this.dummySlots.clear();
     this.lastWeapon = -1;
+    this.grenadeKind = 'frag';
     if (practice) {
       this.spawnMissingDummies();
+      for (const kind of GRENADE_ORDER) for (let i = 0; i < 3; i++) this.supplies.addNew('grenade', kind);
     } else {
       this.player.setLoadout({ pistol: 40 }, 'pistol');
+      for (let i = 0; i < tuning.grenades.startFrag; i++) this.supplies.addNew('grenade', 'frag');
       this.supplies.addNew('herb', 'G');
       this.waves.begin(1, tuning.waves.startDelay);
     }
@@ -508,7 +635,7 @@ export class Game {
       if (this.zombies.every((o) => !o.alive || Math.hypot(o.position.x - x, o.position.z - z) > 1.1)) break;
     }
     const zombie = new Zombie(this.zombieSeed++, x, z, yaw, 'hunt', {
-      holdsTool: kind === 'armed' || (kind === 'shambler' && Math.random() < tuning.zombie.weaponChance),
+      holdsTool: kind === 'shambler' && Math.random() < tuning.zombie.weaponChance,
       kind,
       aware: true,
     });
@@ -542,7 +669,7 @@ export class Game {
     const guns = this.player.guns
       .filter((g) => this.player.has(g.def.id))
       .map((g) => ({ weapon: g.def.id as string, reserve: g.reserve, maxReserve: g.stats.spareAmmo }));
-    const drop: Drop | null = rollDrop({ guns, healItems: this.supplies.healItems, coinScale, luck, grenades: false }, { ...tuning.drops, chance }, Math.random);
+    const drop: Drop | null = rollDrop({ guns, healItems: this.supplies.healItems, coinScale, luck, grenades: this.modeId === 'survival' || this.modeId === 'score' }, { ...tuning.drops, chance }, Math.random);
     if (drop) this.pickups.spawn(drop, at, this.world.groundHeight(at.x, at.z));
   }
 
@@ -593,27 +720,37 @@ export class Game {
   // ---------------------------------------------------------------------------
   // Zombies attacking the player: hits, parries and grabs
 
+  /** Did the knife catch an attack coming from `from`? Handles the knife wear, sparks and sound. */
+  private tryParry(from: Vector3, wearCost: number | null = null): 'perfect' | 'parry' | 'none' {
+    const p = this.player;
+    if (p.grabbed) return 'none';
+    const since = p.sinceKnifePress < 2 ? p.sinceKnifePress : null;
+    const parry = judgeParry(since, p.guarding, p.knife.durability, tuning.knife);
+    if (parry === 'none') return 'none';
+    const k = tuning.knife;
+    const perfect = parry === 'perfect';
+    p.knife.wear(wearCost ?? (perfect ? k.perfectParryCost : k.parryCost), k.unbreakable);
+    p.sinceKnifePress = 999;
+    this.sfx.parry(perfect);
+    this.fx.parrySpark(p.knifeWorld(tmp), perfect);
+    if (perfect) {
+      this.hitStop = Math.max(this.hitStop, k.parryHitStop);
+      this.hud.flashBanner('PERFECT PARRY');
+      this.cam.shake(0.2);
+    } else {
+      p.nudge(from, 0.35);
+      this.cam.shake(0.1);
+    }
+    return parry;
+  }
+
   private attackPlayer(z: Zombie, kind: AttackKind): AttackOutcome {
     const p = this.player;
     if (p.invulnerable || (p.grabbed && this.grabbedBy !== z)) return 'blocked';
-    const since = p.sinceKnifePress < 2 ? p.sinceKnifePress : null;
-    const parry = judgeParry(since, p.guarding, p.knife.durability, tuning.knife);
-    if (parry !== 'none' && !p.grabbed) {
-      const k = tuning.knife;
+    const parry = this.tryParry(z.position, kind === 'chainsaw' ? tuning.chainsaw.parryKnifeCost : null);
+    if (parry !== 'none') {
       const perfect = parry === 'perfect';
-      p.knife.wear(perfect ? k.perfectParryCost : k.parryCost, k.unbreakable);
-      p.sinceKnifePress = 999;
-      this.sfx.parry(perfect);
-      this.fx.parrySpark(p.knifeWorld(tmp), perfect);
-      if (perfect) {
-        this.hitStop = Math.max(this.hitStop, k.parryHitStop);
-        this.hud.flashBanner('PERFECT PARRY');
-        this.cam.shake(0.2);
-      } else {
-        p.nudge(z.position, 0.35);
-        this.cam.shake(0.1);
-      }
-      this.stats.lastHit = perfect ? 'PERFECT PARRY · zombie stunned - kick it!' : 'PARRIED';
+      this.stats.lastHit = perfect ? 'PERFECT PARRY · stunned - kick it!' : 'PARRIED';
       return perfect ? 'perfect' : 'parried';
     }
     if (kind === 'grab') {
@@ -621,9 +758,243 @@ export class Game {
       this.startGrab(z);
       return 'grabbed';
     }
+    if (kind === 'chainsaw') {
+      const hit = chainsawHit(settings.difficulty, tuning.chainsaw.damage, tuning.chainsaw.instantKillFrom as 'easy' | 'normal' | 'hard' | 'pro' | 'never');
+      this.stats.lastHit = hit.instantKill && this.modeId !== 'range' ? 'CHAINSAW · instant death' : 'CHAINSAW HIT';
+      if (hit.instantKill && this.modeId !== 'range' && !p.dead) {
+        this.damageTaken += this.health.current;
+        this.health.kill();
+        p.hurt(z.position, tuning.zombie.attackPush * 1.5);
+        this.cam.shake(tuning.feel.shakeHurt * 1.5);
+        this.hud.hurtFlash();
+        this.sfx.playerHurt();
+        const at = p.position.clone().setY(p.position.y + 1.4);
+        this.fx.blood(at, tmp.subVectors(p.position, z.position).setY(0.2).normalize(), 2 * bloodScale(), p.position.y);
+        this.playerDied();
+      } else {
+        this.damagePlayer(hit.damage, z.position, tuning.zombie.attackPush * 1.5);
+      }
+      return 'hit';
+    }
+    if (kind === 'whip') {
+      this.damagePlayer(tuning.parasite.whipDamage, z.position, tuning.zombie.attackPush * 0.8);
+      return 'hit';
+    }
     const base = kind === 'claw' ? tuning.zombie.clawDamage : tuning.zombie.swingDamage;
-    this.damagePlayer(base * z.stats.damage, z.position, kind === 'claw' ? tuning.zombie.attackPush * 0.6 : tuning.zombie.attackPush);
+    const push = (kind === 'claw' ? tuning.zombie.attackPush * 0.6 : tuning.zombie.attackPush) * (z.kind === 'brute' ? tuning.brute.pushBonus : 1);
+    this.damagePlayer(base * z.stats.damage, z.position, push);
     return 'hit';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Things in the air: grenades, and what enemies throw
+
+  /** An enemy lets go of an axe or a lit stick of dynamite, aimed at you. */
+  private enemyThrow(z: Zombie, what: ThrownKind, from: Vector3, fuse: number): void {
+    const p = this.player;
+    // Aims a little ahead of where you are heading.
+    const lead = what === 'axe' ? 0.35 : 0.5;
+    const target = new Vector3(p.position.x + p.velocity.x * lead, p.position.y + (what === 'axe' ? 1.15 : 0.1), p.position.z + p.velocity.z * lead);
+    if (what === 'axe') {
+      const t = tuning.axeThrower;
+      const vel = solveThrow(from, target, t.speed, false, 9.8 * 0.55);
+      const item = this.thrown.launch('axe', from, tmp.set(vel.x, vel.y, vel.z), -1, true);
+      void item;
+      this.sfx.axeWhoosh(from);
+    } else {
+      const t = tuning.dynamiteThrower;
+      const d = Math.hypot(target.x - from.x, target.z - from.z);
+      const vel = solveThrow(from, target, arcSpeed(d, t.throwSpeed), false);
+      this.thrown.launch('dynamite', from, tmp.set(vel.x, vel.y, vel.z), fuse, true);
+      this.sfx.fuseHiss(from);
+    }
+    void z;
+  }
+
+  /** Is an enemy axe at `pos` touching the player? A parry knocks it out of the air. */
+  private axeReaches(pos: Vector3): 'hit' | 'parried' | 'miss' {
+    const p = this.player;
+    if (p.dead) return 'miss';
+    const dx = pos.x - p.position.x;
+    const dz = pos.z - p.position.z;
+    if (Math.hypot(dx, dz) > 0.6 || pos.y < p.position.y + 0.1 || pos.y > p.position.y + 1.95) return 'miss';
+    if (p.invulnerable) return 'miss';
+    const parry = this.tryParry(pos);
+    if (parry !== 'none') {
+      this.stats.lastHit = parry === 'perfect' ? 'PERFECT PARRY · axe knocked away' : 'PARRIED the axe';
+      this.sfx.axeThunk(pos, false);
+      return 'parried';
+    }
+    this.damagePlayer(tuning.axeThrower.damage, tmp.set(pos.x - 1, pos.y, pos.z), tuning.zombie.attackPush * 0.9);
+    this.stats.lastHit = 'AXE HIT';
+    return 'hit';
+  }
+
+  /** Cycles which grenade G throws. */
+  private cycleGrenade(): void {
+    const have = GRENADE_ORDER.filter((k) => this.supplies.grenades(k).length > 0);
+    if (have.length === 0) return;
+    const i = have.indexOf(this.grenadeKind);
+    this.grenadeKind = have[(i + 1) % have.length];
+    this.sfx.uiClick();
+  }
+
+  /** G: starts a throw if there is a grenade to throw. */
+  private tryThrowGrenade(): void {
+    const p = this.player;
+    if (!p.canThrow) return;
+    if (this.supplies.grenades(this.grenadeKind).length === 0) {
+      const other = GRENADE_ORDER.find((k) => this.supplies.grenades(k).length > 0);
+      if (!other) {
+        this.hud.addFeed('No grenades', 'bad');
+        return;
+      }
+      this.grenadeKind = other;
+    }
+    p.startThrow(tuning.grenades.throwTime);
+    this.sfx.grenadeThrow();
+  }
+
+  /** The grenade leaves the hand part-way through the throwing animation. */
+  private releaseGrenade(): void {
+    const kind = this.grenadeKind;
+    const item = this.supplies.grenades(kind)[0];
+    if (!item) return;
+    this.supplies.remove(item.id);
+    const g = tuning.grenades;
+    const p = this.player;
+    const from = p.leftHandWorld(new Vector3());
+    const aim = this.computeAim();
+    // Aim where you are looking, but keep the throw within a sensible range.
+    const flat = tmp.set(aim.point.x - p.position.x, 0, aim.point.z - p.position.z);
+    const wanted = flat.length();
+    const dist = MathUtils.clamp(wanted, g.minThrow, g.maxThrow);
+    const dir = flat.lengthSq() > 1e-4 ? flat.normalize() : p.forward(tmp3);
+    const target = new Vector3(p.position.x + dir.x * dist, 0, p.position.z + dir.z * dist);
+    target.y = this.world.groundHeight(target.x, target.z) + 0.1;
+    const vel = solveThrow(from, target, arcSpeed(Math.hypot(target.x - from.x, target.z - from.z), g.throwSpeed), false);
+    const fuse = kind === 'frag' ? g.fragFuse : kind === 'flash' ? g.flashFuse : 0;
+    this.thrown.launch(kind, from, new Vector3(vel.x, vel.y, vel.z), fuse, false);
+    if (this.supplies.grenades(kind).length === 0) {
+      const other = GRENADE_ORDER.find((k) => this.supplies.grenades(k).length > 0);
+      if (other) this.grenadeKind = other;
+    }
+  }
+
+  /** A thrown thing has gone off (or been shot): do what it does. */
+  private detonateThrown(t: Thrown): void {
+    const at = t.pos.clone();
+    switch (t.type) {
+      case 'frag': {
+        const g = tuning.grenades;
+        this.explode(at.setY(at.y + 0.15), null, true, { radius: g.fragRadius, damage: g.fragDamage, gibRadius: g.fragGibRadius, limbRadius: g.fragLimbRadius, push: g.fragPush, playerDamage: g.fragPlayerDamage, playerPush: tuning.explosion.playerPush, size: 0.9 });
+        break;
+      }
+      case 'dynamite': {
+        const d = tuning.dynamiteThrower;
+        const e = tuning.explosion;
+        this.explode(at.setY(at.y + 0.15), null, true, { radius: d.radius, damage: d.damage, gibRadius: e.gibRadius, limbRadius: d.radius * 0.7, push: e.push, playerDamage: d.playerDamage, playerPush: e.playerPush, size: 0.85 });
+        break;
+      }
+      case 'flash':
+        this.flashGrenade(at);
+        break;
+      case 'fire':
+        this.igniteGround(at);
+        break;
+      case 'axe':
+        break;
+    }
+  }
+
+  /** The flash grenade: blinds zombies (and you, if you look), and kills parasites. */
+  private flashGrenade(at: Vector3): void {
+    const g = tuning.grenades;
+    this.fx.flashBurst(at);
+    this.sfx.flashBang(at);
+    this.hitStop = Math.max(this.hitStop, 0.05);
+    let hit = 0;
+    let parasites = 0;
+    for (const z of this.zombies) {
+      if (!z.alive) continue;
+      const c = z.chestPosition(tmp2);
+      const d = c.distanceTo(at);
+      if (d > g.flashRadius) continue;
+      const to = tmp3.subVectors(c, at);
+      if (this.world.raycast(at, to.clone().normalize(), Math.max(0, d - 0.3))) continue;
+      const wasParasite = z.parasite;
+      z.flash(g.flashStun, this.zombieHost);
+      if (wasParasite) parasites++;
+      hit++;
+    }
+    // You are dazzled too if you are facing it.
+    const p = this.player;
+    const toFlash = tmp.set(at.x - p.position.x, 0, at.z - p.position.z);
+    const d = toFlash.length();
+    if (d < g.flashRadius && !p.dead) {
+      const camFwd = tmp2.set(-Math.sin(this.cam.yaw), 0, -Math.cos(this.cam.yaw));
+      const facing = toFlash.normalize().dot(camFwd);
+      if (facing > 0.1 || d < 3) this.hud.whiteout(g.flashBlind * (d < 3 ? 1.3 : 1) * (0.5 + 0.5 * Math.max(0, facing)));
+    }
+    this.stats.lastHit = `FLASH · ${hit} blinded${parasites ? ` · ${parasites} parasite${parasites > 1 ? 's' : ''} killed` : ''}`;
+  }
+
+  /** An incendiary lands: a patch of fire on the ground. */
+  private igniteGround(at: Vector3): void {
+    const g = tuning.grenades;
+    at.y = this.world.groundHeight(at.x, at.z);
+    this.fires.add(at, g.fireRadius, g.fireDuration);
+    this.sfx.fireWhoosh(at);
+    this.fx.flame(at, 3);
+    for (const z of this.zombies) {
+      if (z.alive && Math.hypot(z.position.x - at.x, z.position.z - at.z) < g.fireRadius + 0.3) z.ignite();
+    }
+    this.stats.lastHit = 'FIRE';
+  }
+
+  /** Fire on the ground hurts whoever stands in it; burning zombies flame. */
+  private updateFires(dt: number): void {
+    this.fires.update(dt);
+    let lightAt: Vector3 | null = null;
+    let strength = 0;
+    for (const patch of this.fires.patches) {
+      lightAt = patch.pos;
+      strength = Math.min(1, patch.time / 1.5);
+      const n = Math.max(1, Math.round(patch.radius * 1.4));
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.sqrt(Math.random()) * patch.radius;
+        this.fx.flame(tmp.set(patch.pos.x + Math.cos(a) * r, patch.pos.y, patch.pos.z + Math.sin(a) * r), 1);
+      }
+      for (const z of this.zombies) {
+        if (z.alive && Math.hypot(z.position.x - patch.pos.x, z.position.z - patch.pos.z) < patch.radius) z.inFire(dt, this.zombieHost);
+      }
+    }
+    // The player burns while standing in the flames.
+    const p = this.player;
+    if (!p.dead && this.modeId !== 'range' && this.fires.covers(p.position.x, p.position.z, -0.3)) {
+      this.firePainTimer -= dt;
+      const done = this.health.drain(tuning.grenades.firePlayerDamage * dt);
+      this.damageTaken += done;
+      if (this.firePainTimer <= 0) {
+        this.firePainTimer = 0.6;
+        this.hud.hurtFlash();
+        this.sfx.playerHurt();
+      }
+      if (this.health.dead) this.playerDied();
+    }
+    for (const z of this.zombies) {
+      if (!z.alive || z.burning <= 0) continue;
+      this.fx.flame(tmp.set(z.position.x, z.position.y + 0.3 + Math.random() * 1.2, z.position.z), 0.8);
+      lightAt ??= z.position;
+      strength = Math.max(strength, 0.6);
+      this.fireBurnTimer -= dt;
+      if (this.fireBurnTimer <= 0) {
+        this.fireBurnTimer = 0.35;
+        this.sfx.crackle(z.position);
+      }
+    }
+    this.fx.setFireLight(lightAt, strength);
   }
 
   /** Hurts the player (nothing happens to your health on the practice range). */
@@ -901,13 +1272,144 @@ export class Game {
       this.hud.flashBanner('SOMETHING HEAVY IS COMING', 'gore');
       this.sfx.eliteSting();
     }
-    // Until the Trader opens, the break between waves is short.
-    if (this.waves.state === 'intermission' && !this.hasTrader() && this.waves.timer > 8) this.waves.timer = 8;
+    const open = this.hasTrader();
+    if (open && !this.traderWasOpen) {
+      this.hud.flashBanner('THE TRADER IS OPEN');
+      this.sfx.traderArrives();
+    }
+    this.traderWasOpen = open;
   }
 
   /** Is the Trader's stall open for business? (Added in Phase 5.) */
   private hasTrader(): boolean {
-    return false;
+    return this.modeId === 'survival' && this.waves.state === 'intermission' && !!this.world.level.trader && !this.player.dead;
+  }
+
+  // ---------------------------------------------------------------------------
+  // The case and the Trader's menu
+
+  private openUi(which: 'case' | 'trader'): void {
+    if (this.ui || this.paused || !this.mode || this.player.dead) return;
+    this.ui = which;
+    this.hud.visible = false;
+    this.releasingMouse = true;
+    this.input.unlockPointer();
+    this.controls.clear();
+    this.sfx.caseToggle(true);
+  }
+
+  private openCase(): void {
+    if (this.ui === 'trader') {
+      this.traderScreen.hide();
+      this.traderReopen = true;
+    } else {
+      this.traderReopen = false;
+      this.openUi('case');
+    }
+    if (this.ui === null) return;
+    this.ui = 'case';
+    this.caseScreen.show(this.caseHost());
+  }
+
+  private openTrader(): void {
+    this.openUi('trader');
+    if (this.ui !== 'trader') return;
+    this.traderScreen.show(this.traderHost());
+  }
+
+  private closeUi(): void {
+    const was = this.ui;
+    if (!was) return;
+    if (was === 'case' && this.hasTrader() && this.traderReopen) {
+      this.traderReopen = false;
+      this.caseScreen.hide();
+      this.ui = 'trader';
+      this.traderScreen.show(this.traderHost(), false);
+      return;
+    }
+    this.ui = null;
+    this.caseScreen.hide();
+    this.traderScreen.hide();
+    this.hud.visible = true;
+    this.controls.clear();
+    this.clock.reset();
+    this.sfx.caseToggle(false);
+    if (!this.autotest) this.input.lockPointer();
+  }
+
+  private traderReopen = false;
+  private pendingTrader = false;
+
+  private traderHost(): TraderUiHost {
+    return {
+      trader: this.trader,
+      supplies: this.supplies,
+      upgrades: weaponUpgrades,
+      ownedWeapons: () => this.supplies.items.filter((i) => i.kind === 'weapon').map((i) => ({ id: i.key, name: WEAPONS.find((w) => w.id === i.key)?.name ?? i.key })),
+      knifeCondition: () => this.player.knife.condition,
+      padType: () => (this.pad.connected ? this.pad.type : null),
+      sound: (k) => (k === 'buy' ? this.sfx.uiBuy() : k === 'no' ? this.sfx.uiDeny() : this.sfx.uiClick()),
+    };
+  }
+
+  private caseHost(): CaseHost {
+    return {
+      supplies: this.supplies,
+      padType: () => (this.pad.connected ? this.pad.type : null),
+      weaponLines: (item) => {
+        const def = WEAPONS.find((w) => w.id === item.key);
+        const lines = UPGRADE_STATS.map((st) => `${STAT_NAMES[st]}: ${weaponUpgrades.level(item.key, st)}/${weaponUpgrades.maxLevel(item.key)}`);
+        if (weaponUpgrades.hasExclusive(item.key)) lines.push(`\u2605 ${EXCLUSIVES[item.key]?.name}`);
+        const fitted = weaponUpgrades.attachmentsOf(item.key);
+        if (fitted.length) lines.push(`Fitted: ${fitted.join(', ')}`);
+        void def;
+        return lines;
+      },
+      use: (item) => {
+        const effect = item.kind === 'spray' ? { heal: 'full' as const, raiseMax: tuning.health.sprayRaisesMax } : herbEffect(item.key);
+        if (!effect) return null;
+        if (this.health.fraction >= 1 && effect.raiseMax <= 0) return 'Your health is already full.';
+        this.health.apply(effect);
+        this.supplies.remove(item.id);
+        this.sfx.healed();
+        return 'Health restored.';
+      },
+      discard: (item) => {
+        if (item.kind === 'weapon' && this.supplies.items.filter((i) => i.kind === 'weapon').length <= 1) return null;
+        this.supplies.remove(item.id);
+        if (item.kind === 'weapon') this.player.take(item.key as 'pistol');
+        return `Threw away ${itemDef(item).name}.`;
+      },
+      attach: (att, weapon) => {
+        const def = WEAPONS.find((w) => w.id === weapon.key);
+        if (!def) return null;
+        const ok = weaponUpgrades.attach({ id: def.id, hold: def.hold, reload: def.reload, projectile: def.projectile }, att.key);
+        if (!ok) return null;
+        this.supplies.remove(att.id);
+        return `Fitted to ${def.name}.`;
+      },
+    };
+  }
+
+  /** Screen position for the Trader's marker, kept inside the screen edges. */
+  private updateTraderMarker(): void {
+    const t = this.world.level.trader;
+    if (!t || !this.hasTrader() || this.ui) {
+      this.traderNpc.visible = this.hasTrader();
+      this.hud.setTraderMarker(null, '', '', false);
+      return;
+    }
+    this.traderNpc.visible = true;
+    const dist = Math.hypot(t.customerX - this.player.position.x, t.customerZ - this.player.position.z);
+    const near = dist < tuning.trader.talkRange;
+    tmp.set(t.x, this.world.groundHeight(t.x, t.z) + 2.4, t.z).project(this.camera);
+    const behind = tmp.z > 1;
+    let x = (tmp.x * (behind ? -1 : 1) + 1) / 2;
+    let y = (1 - tmp.y * (behind ? -1 : 1)) / 2;
+    x = MathUtils.clamp(x, 0.06, 0.94);
+    y = MathUtils.clamp(y, 0.1, 0.9);
+    const padType = this.pad.connected && this.controls.lastDevice === 'gamepad' ? this.pad.type : null;
+    this.hud.setTraderMarker({ x: x * window.innerWidth, y: y * window.innerHeight }, padType ? padButtonName(PAD.south, padType) : 'E', near ? 'Trade' : `Trader \u00B7 ${Math.round(dist)} m`, near);
   }
 
   private survivalInfo(): string {
@@ -1015,6 +1517,14 @@ export class Game {
         swept++;
       }
       this.stats.lastHit = `ROUNDHOUSE KICK · ${Math.round(r.damage)} damage · ${r.killed ? 'KILLED' : 'KNOCKED DOWN'}${swept ? ` (+${swept} more knocked down)` : ''}`;
+    } else if (move === 'frontKick' && phase === 'impact' && z.hasShield) {
+      // A kick smashes the shield out of its hands and rocks it back.
+      this.breakShieldOf(z, dir);
+      this.sfx.kick(z.chestPosition(tmp));
+      feel();
+      const r = land(m.frontKickDamage * 0.4, 'torso', 2.5);
+      z.stun(tuning.reactions.headStaggerTime);
+      this.stats.lastHit = `KICKED THE SHIELD APART · ${Math.round(r.damage)} damage`;
     } else if (move === 'frontKick' && phase === 'impact') {
       const r = land(m.frontKickDamage, 'torso', 5);
       this.sfx.kick(z.chestPosition(tmp));
@@ -1120,7 +1630,7 @@ export class Game {
   /** Head bursts and torn-off limbs from a hit (after the zombie has reacted). */
   private applyGore(z: Zombie, result: HitResult, dir: Vector3): void {
     const level = goreLevel();
-    if (result.headPop && !z.headless) {
+    if ((result.headPop || result.mutate) && !z.headless) {
       const skin = z.skin;
       const at = level === 'off' ? z.headPosition(new Vector3()) : z.popHead(new Vector3());
       this.sfx.headBurst(at);
@@ -1131,6 +1641,10 @@ export class Game {
       this.hitStop = Math.max(this.hitStop, tuning.feel.hitStopKill * 1.4);
       this.cam.shake(tuning.feel.shakeHeadshot * 2);
       if (result.crit) this.hud.flashBanner('CRITICAL!', 'gore');
+    }
+    if (result.mutate) {
+      this.hud.flashBanner('PARASITE!', 'gore');
+      this.cam.shake(0.3);
     }
     if (level === 'off') return;
     for (const s of result.severed) this.tearOff(z, s.zone, s.segment, dir, 1);
@@ -1238,14 +1752,20 @@ export class Game {
     }
   }
 
+  /** The blast of a rocket or barrel, from the tuning numbers. */
+  private rocketBlast(): BlastSpec {
+    const e = tuning.explosion;
+    return { radius: e.radius, damage: e.damage, gibRadius: e.gibRadius, limbRadius: e.limbRadius, push: e.push, playerDamage: e.playerDamage, playerPush: e.playerPush, size: 1 };
+  }
+
   /** A blast: damages, throws, dismembers or blows apart everything nearby. */
-  private explode(at: Vector3, direct: Zombie | null = null, big = true): void {
+  private explode(at: Vector3, direct: Zombie | null = null, big = true, spec: BlastSpec = this.rocketBlast()): void {
     const e = tuning.explosion;
     const ground = this.world.groundHeight(at.x, at.z);
-    this.fx.explosion(at, ground, big ? 1 : 0.8);
+    this.fx.explosion(at, ground, (big ? 1 : 0.8) * spec.size);
     this.sfx.explosion(at, big);
     const playerDist = tmp.set(this.player.position.x, this.player.position.y + 1, this.player.position.z).distanceTo(at);
-    this.cam.shake(e.shake * MathUtils.clamp(1 - playerDist / (e.radius * 4), 0.15, 1));
+    this.cam.shake(e.shake * MathUtils.clamp(1 - playerDist / (spec.radius * 4), 0.15, 1));
     this.hitStop = Math.max(this.hitStop, e.hitStop);
     const gore = goreLevel();
     let killed = 0;
@@ -1253,31 +1773,33 @@ export class Game {
       if (z.gibbed) continue;
       const center = z.bodyCenter(new Vector3());
       const d = center.distanceTo(at);
-      if (d > e.radius) continue;
+      if (d > spec.radius) continue;
       // Solid walls shelter whatever is behind them.
       const to = tmp2.subVectors(center, at);
       const wall = this.world.raycast(at, to.clone().normalize(), Math.max(0, d - 0.3));
       if (wall && !this.barrelFor(wall.object)) continue;
       const dir = to.setY(Math.max(0.1, to.y)).normalize();
       if (!z.alive) {
-        if (gore !== 'off' && d < e.gibRadius) this.gibZombie(z, at);
+        if (gore !== 'off' && d < spec.gibRadius) this.gibZombie(z, at);
         continue;
       }
-      const k = blastFalloff(d, e.radius);
-      if (gore !== 'off' && !z.invincible && (d < e.gibRadius || z === direct)) {
+      const k = blastFalloff(d, spec.radius);
+      const elite = isElite(z.kind);
+      if (gore !== 'off' && !z.invincible && !elite && (d < spec.gibRadius || z === direct)) {
         z.health = 0;
+        z.parasiteHealth = 0;
         const res = resolveShot([{ zone: 'torso', damage: 1e6, knockback: 0 }], z.targetState, 0, tuning);
         z.applyHit(res, dir, this.sfx, this.zombieHost);
         this.gibZombie(z, at);
         killed++;
         continue;
       }
-      const damage = e.damage * k + (z === direct ? tuning.rocket.damage : 0);
-      const push = e.push * (0.4 + 0.6 * k);
-      const result = resolveShot([{ zone: 'torso', damage, knockback: Math.max(push, tuning.reactions.knockdownThreshold) }], z.targetState, 0, tuning);
+      const damage = spec.damage * k + (z === direct ? tuning.rocket.damage : 0);
+      const push = spec.push * (0.4 + 0.6 * k);
+      const result = resolveShot([{ zone: 'torso', damage, knockback: Math.max(push, tuning.reactions.knockdownThreshold) }], z.targetState, 0, tuning, Math.random, { explosive: true });
       // Arms and legs may come off close to the blast.
-      if (gore !== 'off' && !z.invincible && d < e.limbRadius) {
-        const chance = 0.65 * (1 - d / e.limbRadius);
+      if (gore !== 'off' && !z.invincible && !elite && d < spec.limbRadius) {
+        const chance = 0.65 * (1 - d / spec.limbRadius);
         for (const limb of ['armL', 'armR', 'legL', 'legR'] as LimbZone[]) {
           if (!z.missing.has(limb) && Math.random() < chance) result.severed.push({ zone: limb, segment: Math.random() < 0.5 ? 'upper' : 'lower' });
         }
@@ -1292,17 +1814,23 @@ export class Game {
     // Crates close to the blast are smashed.
     for (const c of this.crates) {
       if (c.broken) continue;
-      if (c.mesh.getWorldPosition(tmp2).distanceTo(at) < e.radius * 0.6) this.breakCrate(c);
+      if (c.mesh.getWorldPosition(tmp2).distanceTo(at) < spec.radius * 0.6) this.breakCrate(c);
     }
     // Nearby barrels catch the blast and go off a moment later.
     for (const b of this.barrels) {
       if (b.exploded || b.fuse >= 0) continue;
-      if (b.group.position.distanceTo(tmp.set(at.x, b.group.position.y, at.z)) < e.radius * 0.7) b.fuse = e.barrelChainDelay;
+      if (b.group.position.distanceTo(tmp.set(at.x, b.group.position.y, at.z)) < spec.radius * 0.7) b.fuse = e.barrelChainDelay;
     }
-    // Too close for comfort: knocked back (player health arrives in Phase 3).
-    if (playerDist < e.radius * 0.8 && !this.player.invulnerable) {
-      const near = 1 - playerDist / (e.radius * 0.8);
-      this.damagePlayer(e.playerDamage * near, at, e.playerPush * near);
+    // Other things in the air near the blast go off too.
+    for (const t of [...this.thrown.items]) {
+      if (t.pos.distanceTo(at) < spec.radius * 0.5 && t.type !== 'axe' && t.type !== 'fire') {
+        t.fuse = Math.min(t.fuse < 0 ? 0.15 : t.fuse, 0.15);
+      }
+    }
+    // Too close for comfort: hurt and shoved.
+    if (playerDist < spec.radius * 0.8 && !this.player.invulnerable) {
+      const near = 1 - playerDist / (spec.radius * 0.8);
+      this.damagePlayer(spec.playerDamage * near, at, spec.playerPush * near);
     }
   }
 
@@ -1350,6 +1878,39 @@ export class Game {
 
   // ---------------------------------------------------------------------------
   // Shooting
+
+  /** Chance a destroyed head lets a parasite out (rises with the wave). */
+  private mutateChance(): number {
+    if (this.modeId !== 'survival' && this.modeId !== 'score') return 0;
+    if (goreLevel() === 'off') return 0;
+    const p = tuning.parasite;
+    return Math.min(p.maxChance, p.baseChance + p.chancePerWave * Math.max(0, this.waves.wave - 1));
+  }
+
+  /** A bullet hits something in the air. */
+  private shootDown(t: Thrown): void {
+    if (t.type === 'axe') {
+      this.sfx.axeThunk(t.pos, false);
+      this.fx.parrySpark(t.pos, false);
+      this.thrown.remove(t);
+      return;
+    }
+    // A grenade or lit dynamite shot in the air goes off where it is.
+    this.thrown.remove(t);
+    this.detonateThrown(t);
+  }
+
+  /** The shield splinters and drops away in pieces. */
+  private breakShieldOf(z: Zombie, dir: Vector3): void {
+    const shield = z.breakShield();
+    if (!shield) return;
+    const at = shield.getWorldPosition(new Vector3());
+    this.sfx.shieldHit(at, true);
+    this.fx.surfaceImpact(at, UP, 'wood', 3);
+    const vel = dir.clone().setY(0).normalize().multiplyScalar(2.5 + Math.random() * 2);
+    vel.y += 2.5;
+    this.gore.fling(shield, vel, new Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(12));
+  }
 
   private zombieParts(): Mesh[] {
     const parts: Mesh[] = [];
@@ -1406,6 +1967,8 @@ export class Game {
     // Trace every bullet / pellet. Pellets fan out in a cone.
     const goreOn = goreLevel() !== 'off';
     const perZombie = new Map<Zombie, { pellets: PelletHit[]; points: Vector3[]; dir: Vector3 }>();
+    let shieldNote = '';
+    let shotDown = false;
     const corpseHits: Array<{ point: Vector3; dir: Vector3 }> = [];
     let wallSound = false;
     const dir = new Vector3();
@@ -1414,6 +1977,13 @@ export class Game {
       const wall = this.world.raycast(origin, dir, gun.maxRange);
       const stopAt = wall ? wall.distance : gun.maxRange;
       const hits = this.castZombies(origin, dir, stopAt);
+      // An axe or a grenade in the air can be shot down.
+      const aloft = this.thrown.shotAt(origin, dir, Math.min(stopAt, hits.length ? hits[0].distance : stopAt));
+      if (aloft) {
+        shotDown = true;
+        this.shootDown(aloft.item);
+        continue;
+      }
       const passed = new Set<Zombie>();
       let stopped = false;
       for (const h of hits) {
@@ -1432,6 +2002,23 @@ export class Game {
           perZombie.set(z, entry);
         }
         const joint = h.object.parent?.name ?? '';
+        if (h.object.userData.zone === 'shield') {
+          // The shield soaks it up. If that was the last of it, the planks fly apart.
+          const broke = z.shieldHit(gun.damage * k);
+          this.fx.surfaceImpact(h.point, tmp.copy(dir).negate(), 'wood', 0.7);
+          this.sfx.shieldHit(h.point, broke);
+          entry.pellets.push({ zone: 'shield', damage: 0, knockback: 0 });
+          entry.points.push(h.point.clone());
+          entry.dir.add(dir);
+          if (broke) {
+            this.breakShieldOf(z, dir);
+            shieldNote = 'SHIELD BROKEN';
+          } else if (z.shield) {
+            shieldNote = `SHIELD · ${Math.max(0, Math.round((z.shield.hp / z.shield.max) * 100))}% left`;
+          }
+          stopped = true;
+          break;
+        }
         entry.pellets.push({
           zone: h.object.userData.zone as Zone,
           damage: gun.damage * k,
@@ -1469,6 +2056,7 @@ export class Game {
         const angle = MathUtils.radToDeg(Math.abs(angleBetweenFlat(to, baseDir)));
         const push = blastPush(d, angle, gun.blastRange, gun.blastAngle, gun.blastPush);
         if (push <= 0) continue;
+        if (z.hasShield && !z.facingAwayFrom(this.player.position)) continue; // the shield takes it
         const wall = this.world.raycast(muzzlePos, to.normalize(), d);
         if (wall) continue;
         let entry = perZombie.get(z);
@@ -1493,7 +2081,11 @@ export class Game {
     let summary: HitResult | null = null;
     let knockedDown = 0;
     for (const [z, entry] of perZombie) {
-      const result = resolveShot(entry.pellets, z.targetState, this.player.focus, tuning, Math.random, { critChance: gun.critChance });
+      const result = resolveShot(entry.pellets, z.targetState, this.player.focus, tuning, Math.random, {
+        critChance: gun.critChance,
+        mutateChance: this.mutateChance(),
+        overkillRatio: tuning.parasite.overkillRatio,
+      });
       entry.dir.normalize();
       z.applyHit(result, entry.dir, this.sfx, this.zombieHost);
       this.applyGore(z, result, entry.dir);
@@ -1506,8 +2098,8 @@ export class Game {
         this.fx.blood(pt, entry.dir, ((zone === 'head' ? 1.5 : 1) / Math.sqrt(entry.points.length)) * bloodScale(), this.world.groundHeight(pt.x, pt.z));
       });
       const group = zoneGroup(result.zone);
-      this.sfx.impactFlesh(group, entry.points[0], result.killed);
-      this.hud.hitMarker(group, result.killed, f.hitMarkerTime);
+      if (group !== 'shield') this.sfx.impactFlesh(group, entry.points[0], result.killed);
+      this.hud.hitMarker(group === 'shield' ? 'torso' : group, result.killed, f.hitMarkerTime);
       const stop = result.killed
         ? f.hitStopKill
         : result.reaction === 'knockdown'
@@ -1520,7 +2112,9 @@ export class Game {
     }
     if (summary) {
       const others = knockedDown - (summary.reaction === 'knockdown' || summary.killed ? 1 : 0);
-      this.stats.lastHit = describeHit(summary) + (others > 0 ? ` (+${others} more ${shotgun ? 'bowled over' : 'hit'})` : '');
+      this.stats.lastHit = summary.zone === 'shield' && shieldNote ? shieldNote : describeHit(summary) + (others > 0 ? ` (+${others} more ${shotgun ? 'bowled over' : 'hit'})` : '');
+    } else if (shotDown) {
+      this.stats.lastHit = 'SHOT IT OUT OF THE AIR';
     }
     if (pelletHits > 0) this.stats.hits++;
     if (headHit) {
@@ -1540,7 +2134,26 @@ export class Game {
       this.renderer.info.reset();
       this.pad.poll(tuning.controls.stickDeadzone);
       this.handleGlobalKeys();
-      const playing = !this.paused && this.mode !== null;
+      if (this.controls.takeCase() && !this.paused && this.mode) {
+        if (this.ui) this.closeUi();
+        else this.openCase();
+      }
+      if (this.pendingTrader) {
+        this.pendingTrader = false;
+        this.openTrader();
+      }
+      if (this.ui) {
+        if (this.controls.takePause()) this.closeUi();
+        if (this.ui === 'case') {
+          this.caseScreen.poll(this.pad, dt);
+          if (this.input.wasPressed('Escape')) this.closeUi();
+        } else if (this.ui === 'trader') {
+          this.traderScreen.poll(this.pad, dt);
+          this.traderScreen.setTimer(`Next wave in ${Math.ceil(this.waves.timer)}`);
+          if (!this.hasTrader()) this.closeUi();
+        }
+      }
+      const playing = !this.paused && this.mode !== null && this.ui === null;
 
       const mouseActive = this.autotest || this.input.pointerLocked;
       const c = tuning.controls;
@@ -1600,7 +2213,13 @@ export class Game {
         this.startMelee();
         input.sprintPressed = false;
       }
+      if (this.controls.takeInteract() && !this.meleeOption && this.hasTrader()) {
+        const t = this.world.level.trader!;
+        if (Math.hypot(t.customerX - this.player.position.x, t.customerZ - this.player.position.z) < tuning.trader.talkRange) this.pendingTrader = true;
+      }
       if (input.healPressed) this.tryHeal();
+      if (input.grenadeCycle) this.cycleGrenade();
+      if (input.grenadePressed) this.tryThrowGrenade();
     }
     this.player.tick(dt, input, this.cam, this.world, this.playerHost);
     this.keepInArena();
@@ -1610,6 +2229,8 @@ export class Game {
     this.tickHealthEffects(dt);
     this.updateCarry();
     this.updateRockets(dt);
+    this.thrown.update(dt, this.thrownHost);
+    this.updateFires(dt);
     this.updateBarrels(dt);
     for (const p of this.fallingProps) p.update(dt, this.world.groundHeight(p.object.position.x, p.object.position.z));
     const ground = (x: number, z: number) => this.world.groundHeight(x, z);
@@ -1705,6 +2326,9 @@ export class Game {
         );
       }
       this.updatePrompts(playing);
+      this.traderNpc.lookYaw = 0;
+      this.traderNpc.update(dt);
+      this.updateTraderMarker();
       const live = this.modeId === 'survival' || this.modeId === 'score';
       if (live) this.hud.setTopInfo(this.survivalInfo());
       else this.hud.setStats(this.mode === 'range' ? this.stats : null);
@@ -1742,6 +2366,17 @@ export class Game {
       padType ? padButtonName(PAD.north, padType) : 'H',
     );
     this.hud.setCoins(live ? this.supplies.coins : null);
+    const total = GRENADE_ORDER.reduce((n, k) => n + this.supplies.grenades(k).length, 0);
+    if (!live && this.modeId !== 'range') {
+      this.hud.setGrenades(null);
+    } else if (total === 0) {
+      this.hud.setGrenades(null);
+    } else {
+      const key = padType ? padButtonName(PAD.l1, padType) : 'G';
+      const change = padType ? padButtonName(PAD.up, padType) : 'B';
+      const parts = GRENADE_ORDER.map((k) => `<span class="gr ${k}${k === this.grenadeKind ? ' on' : ''}">${GRENADE_NAMES[k]} <b>${this.supplies.grenades(k).length}</b></span>`);
+      this.hud.setGrenades(`<div class="gr-row">${parts.join('')}</div><div class="gr-keys"><kbd>${key}</kbd> throw &nbsp; <kbd>${change}</kbd> change</div>`);
+    }
   }
 
   /** The melee prompt over a stunned zombie, and the break-free bar while grabbed. */
@@ -1944,8 +2579,10 @@ export class Game {
   }
 
   /** For automated tests: hurts the player, gives items, or skips the wave break. */
-  debugCheat(kind: 'hurt' | 'herb' | 'spray' | 'coins' | 'skipBreak' | 'dropHere' | 'wave', value = 0, key = 'G'): void {
-    if (kind === 'hurt') this.damagePlayer(value, this.player.position.clone().add(tmp.set(0, 0, 1)), 0);
+  debugCheat(kind: 'hurt' | 'herb' | 'spray' | 'coins' | 'skipBreak' | 'dropHere' | 'wave' | 'grenade' | 'fire', value = 0, key = 'G'): void {
+    if (kind === 'grenade') for (let i = 0; i < value; i++) this.supplies.addNew('grenade', key);
+    else if (kind === 'fire') this.igniteGround(this.player.position.clone().addScaledVector(this.player.forward(tmp), value || 6));
+    else if (kind === 'hurt') this.damagePlayer(value, this.player.position.clone().add(tmp.set(0, 0, 1)), 0);
     else if (kind === 'herb') this.supplies.addNew('herb', key);
     else if (kind === 'spray') this.supplies.addNew('spray', 'spray');
     else if (kind === 'coins') this.supplies.coins += value;
@@ -1954,8 +2591,19 @@ export class Game {
     else this.pickups.spawn({ type: 'coins', amount: value || 100 }, this.player.position.clone().add(tmp.set(1.5, 0.5, 0)), this.world.groundHeight(this.player.position.x, this.player.position.z));
   }
 
+  /** For automated tests: opens the case or the Trader's menu. */
+  debugUi(which: 'case' | 'trader' | 'close'): void {
+    if (which === 'close') this.closeUi();
+    else if (which === 'case') this.openCase();
+    else this.openTrader();
+  }
+
   debugState() {
     return {
+      ui: this.ui,
+      traderOpen: this.hasTrader(),
+      caseSize: [this.supplies.grid.width, this.supplies.grid.height],
+      gunItems: this.supplies.items.filter((i) => i.kind === 'weapon').map((i) => i.key),
       mode: this.modeId,
       level: this.mode,
       health: this.health.current,
@@ -1998,7 +2646,18 @@ export class Game {
         gibbed: z.gibbed,
         missing: [...z.missing.keys()],
         openTo: z.openTo,
+        shield: z.shield ? Math.round(z.shield.hp) : null,
+        parasite: z.parasite,
+        parasiteHealth: Math.round(z.parasiteHealth),
+        burning: z.burning > 0,
+        x: z.position.x,
+        z: z.position.z,
       })),
+      thrown: this.thrown.items.map((t) => t.type),
+      launched: { ...this.thrown.launched },
+      fires: this.fires.patches.length,
+      grenades: { frag: this.supplies.grenades('frag').length, flash: this.supplies.grenades('flash').length, fire: this.supplies.grenades('fire').length, selected: this.grenadeKind },
+      throwing: this.player.throwTime > 0,
       melee: this.player.melee,
       meleePrompt: this.meleeOption?.move ?? null,
       grabbed: this.player.grabbed,

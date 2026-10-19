@@ -34,7 +34,7 @@ export class Menu {
     this.root.innerHTML = `
       <div class="menu-panel">
         <h1>DEAD ACRE</h1>
-        <div class="menu-sub">Phase 3 &middot; The horde &middot; waves, health &amp; drops</div>
+        <div class="menu-sub">Phase 4 &middot; Arsenal &middot; grenades, new enemies &amp; guns</div>
         <div class="menu-main">
           <div class="menu-buttons">
             <button type="button" data-choice="resume" class="resume">Resume</button>

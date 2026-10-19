@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveHit, resolveShot, zoneGroup, type DamageRules, type PelletHit, type TargetState } from '../../src/combat/damage';
 
 const rules: DamageRules = {
-  damage: { head: 2.5, torso: 1, arm: 0.6, leg: 0.75 },
+  damage: { head: 2.5, torso: 1, arm: 0.6, leg: 0.75, parasite: 3 },
   reactions: {
     classicHeadStagger: true,
     remakeHeadStaggerChance: 0.35,
@@ -13,6 +13,7 @@ const rules: DamageRules = {
     knockdownThreshold: 1.6,
   },
   gore: { headPopDamage: 600 },
+  parasite: { bodyScale: 0.2 },
 };
 
 const pistol = { damage: 100, knockback: 0.15 };
@@ -249,5 +250,99 @@ describe('gore: tearing off limbs', () => {
     const hit = resolveShot([{ zone: 'armL', damage: 2000, knockback: 0, sever: 1, segment: 'upper' }], zombie(), 1, rules, always);
     expect(hit.killed).toBe(true);
     expect(hit.severed.length).toBe(1);
+  });
+});
+
+describe('parasite mutation', () => {
+  const head = (damage: number): PelletHit[] => [{ zone: 'head', damage, knockback: 0.15 }];
+  const mutable = (over: Partial<TargetState> = {}) => zombie({ canMutate: true, ...over });
+
+  it('a killing headshot that is not overkill can let a parasite out instead', () => {
+    const r = resolveShot(head(100), mutable({ health: 200 }), 1, rules, always, { mutateChance: 0.3, overkillRatio: 2.2 });
+    expect(r.mutate).toBe(true);
+    expect(r.killed).toBe(false);
+    expect(r.reaction).toBe('mutate');
+    expect(r.healthAfter).toBe(200);
+  });
+
+  it('only when the roll comes up', () => {
+    const r = resolveShot(head(100), mutable({ health: 200 }), 1, rules, never, { mutateChance: 0.3, overkillRatio: 2.2 });
+    expect(r.mutate).toBe(false);
+    expect(r.killed).toBe(true);
+  });
+
+  it('overkill prevents it', () => {
+    const r = resolveShot(head(400), mutable({ health: 100 }), 1, rules, always, { mutateChance: 1, overkillRatio: 2.2 });
+    expect(r.mutate).toBe(false);
+    expect(r.killed).toBe(true);
+  });
+
+  it('a critical headshot kills instantly: no parasite', () => {
+    const r = resolveShot(head(100), mutable({ health: 450 }), 1, rules, always, { mutateChance: 1, critChance: 1 });
+    expect(r.crit).toBe(true);
+    expect(r.mutate).toBe(false);
+    expect(r.killed).toBe(true);
+  });
+
+  it('never for elites or zombies that already have one', () => {
+    expect(resolveShot(head(100), zombie({ health: 200 }), 1, rules, always, { mutateChance: 1 }).mutate).toBe(false);
+    expect(resolveShot(head(100), mutable({ health: 200, parasite: true }), 1, rules, always, { mutateChance: 1 }).mutate).toBe(false);
+  });
+
+  it('a hit to the body never starts one', () => {
+    const r = resolveShot([{ zone: 'torso', damage: 300, knockback: 0 }], mutable({ health: 200 }), 1, rules, always, { mutateChance: 1 });
+    expect(r.mutate).toBe(false);
+  });
+});
+
+describe('with a parasite out', () => {
+  const infested = (over: Partial<TargetState> = {}) => zombie({ parasite: true, health: 400, ...over });
+
+  it('the parasite is the weak point; the body barely counts', () => {
+    const body = resolveShot([{ zone: 'torso', damage: 100, knockback: 0 }], infested(), 1, rules);
+    const weak = resolveShot([{ zone: 'parasite', damage: 100, knockback: 0 }], infested(), 1, rules);
+    expect(body.damage).toBeCloseTo(20);
+    expect(weak.damage).toBeCloseTo(300);
+    expect(weak.killed).toBe(false);
+    expect(resolveShot([{ zone: 'parasite', damage: 200, knockback: 0 }], infested(), 1, rules).killed).toBe(true);
+  });
+});
+
+describe('heavy elites', () => {
+  const brute = (over: Partial<TargetState> = {}) => zombie({ heavy: true, health: 4000, ...over });
+
+  it('shrug off leg shots, body shots and shotgun blasts', () => {
+    expect(resolveShot([{ zone: 'legL', damage: 100, knockback: 0.2 }], brute(), 1, rules, always).reaction).toBe('none');
+    expect(resolveShot([{ zone: 'torso', damage: 100, knockback: 5 }], brute(), 1, rules, always).reaction).toBe('none');
+    expect(resolveShot([{ zone: 'armR', damage: 100, knockback: 0 }], brute(), 1, rules, always).reaction).toBe('none');
+  });
+
+  it('are staggered by a headshot', () => {
+    expect(resolveShot([{ zone: 'head', damage: 100, knockback: 0.15 }], brute(), 1, rules, always).reaction).toBe('headStagger');
+  });
+
+  it('are thrown by an explosion', () => {
+    expect(resolveShot([{ zone: 'torso', damage: 100, knockback: 5 }], brute(), 1, rules, always, { explosive: true }).reaction).toBe('knockdown');
+  });
+});
+
+describe('shields', () => {
+  it('never take damage as part of the body', () => {
+    const r = resolveShot([{ zone: 'shield', damage: 500, knockback: 1 }], zombie(), 1, rules);
+    expect(r.damage).toBe(0);
+    expect(r.killed).toBe(false);
+  });
+});
+
+describe('heavy elites and gore', () => {
+  const heavy = { health: 5000, invincible: false, running: false, downed: false, holdingWeapon: false, windingUpThrow: false, heavy: true };
+
+  it('their heads cannot be burst even by a huge hit, and nothing tears off', () => {
+    const r = resolveShot([{ zone: 'head', damage: 400, knockback: 1, pop: 1 }], heavy, 1, rules, () => 0, { critChance: 1 });
+    expect(r.headPop).toBe(false);
+    expect(r.crit).toBe(false);
+    expect(r.killed).toBe(false);
+    const arm = resolveShot([{ zone: 'armL', damage: 100, knockback: 1, sever: 1 }], heavy, 1, rules, () => 0);
+    expect(arm.severed).toEqual([]);
   });
 });

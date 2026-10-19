@@ -1,12 +1,29 @@
 import { tuning } from '../config/tuning';
+import { WeaponUpgrades } from './upgrades';
 
 // The guns you carry, and the bookkeeping for each one: ammo, firing rate,
 // pumping and reloading. Kept free of graphics so it can be unit-tested.
 
-export type WeaponId = 'pistol' | 'pump' | 'drum' | 'smg' | 'rifle' | 'magnum' | 'rocket';
+export type WeaponId = 'pistol' | 'pump' | 'drum' | 'smg' | 'rifle' | 'magnum' | 'rocket' | 'heavy' | 'swift';
 
 /** Every gun's numbers have this shape (see the sections in tuning.ts). */
 export type WeaponStats = typeof tuning.pistol;
+
+/** What has been bought for each gun (levels, exclusive upgrades, attachments). Wiped at the start of a run. */
+export const weaponUpgrades = new WeaponUpgrades(() => tuning.upgrades);
+
+const upgradedCache = new Map<string, WeaponStats>();
+
+/** A gun's numbers from tuning.ts with everything bought for it applied. */
+function statsFor(id: string, base: WeaponStats): WeaponStats {
+  if (!weaponUpgrades.affects(id)) return base;
+  let out = upgradedCache.get(id);
+  if (!out) {
+    out = { ...base };
+    upgradedCache.set(id, out);
+  }
+  return weaponUpgrades.apply(id, base, out);
+}
 
 /** Sounds and moments a gun produces while it works. */
 export type GunEvent =
@@ -47,7 +64,7 @@ export interface WeaponDef {
   /** What kind of casing flies out (none for the revolver and rocket). */
   casing: 'brass' | 'hull' | 'none';
   /** Which gunshot sound to play. */
-  sound: 'pistol' | 'shotgun' | 'autoShotgun' | 'smg' | 'rifle' | 'magnum' | 'rocket';
+  sound: 'pistol' | 'shotgun' | 'autoShotgun' | 'smg' | 'rifle' | 'magnum' | 'rocket' | 'heavyPistol' | 'swiftPistol';
   /** Looking through a scope while aiming. */
   scope: boolean;
   /** Fires a rocket instead of bullets. */
@@ -56,32 +73,40 @@ export interface WeaponDef {
 
 export const WEAPONS: readonly WeaponDef[] = [
   {
-    id: 'pistol', name: 'KESTREL 9', slot: 1, stats: () => tuning.pistol, hold: 'pistol', reload: 'magazine', cycle: 'none', auto: false,
+    id: 'pistol', name: 'KESTREL 9', slot: 1, stats: () => statsFor('pistol', tuning.pistol), hold: 'pistol', reload: 'magazine', cycle: 'none', auto: false,
     reloadEvents: ['magOut', 'magIn', 'slide'], loadEvent: 'shellIn', casing: 'brass', sound: 'pistol', scope: false, projectile: false,
   },
   {
-    id: 'pump', name: 'BRAMBLE 12', slot: 2, stats: () => tuning.pumpShotgun, hold: 'long', reload: 'shells', cycle: 'pump', auto: false,
+    id: 'pump', name: 'BRAMBLE 12', slot: 2, stats: () => statsFor('pump', tuning.pumpShotgun), hold: 'long', reload: 'shells', cycle: 'pump', auto: false,
     reloadEvents: [null, null, 'pump'], loadEvent: 'shellIn', casing: 'hull', sound: 'shotgun', scope: false, projectile: false,
   },
   {
-    id: 'drum', name: 'THRESHER', slot: 3, stats: () => tuning.drumShotgun, hold: 'long', reload: 'magazine', cycle: 'none', auto: false,
+    id: 'drum', name: 'THRESHER', slot: 3, stats: () => statsFor('drum', tuning.drumShotgun), hold: 'long', reload: 'magazine', cycle: 'none', auto: false,
     reloadEvents: ['drumOut', 'drumIn', 'bolt'], loadEvent: 'shellIn', casing: 'hull', sound: 'autoShotgun', scope: false, projectile: false,
   },
   {
-    id: 'smg', name: 'MAGPIE', slot: 4, stats: () => tuning.smg, hold: 'long', reload: 'magazine', cycle: 'none', auto: true,
+    id: 'smg', name: 'MAGPIE', slot: 4, stats: () => statsFor('smg', tuning.smg), hold: 'long', reload: 'magazine', cycle: 'none', auto: true,
     reloadEvents: ['magOut', 'magIn', 'bolt'], loadEvent: 'shellIn', casing: 'brass', sound: 'smg', scope: false, projectile: false,
   },
   {
-    id: 'rifle', name: 'HERON', slot: 5, stats: () => tuning.rifle, hold: 'long', reload: 'shells', cycle: 'bolt', auto: false,
+    id: 'rifle', name: 'HERON', slot: 5, stats: () => statsFor('rifle', tuning.rifle), hold: 'long', reload: 'shells', cycle: 'bolt', auto: false,
     reloadEvents: [null, null, 'bolt'], loadEvent: 'roundIn', casing: 'brass', sound: 'rifle', scope: true, projectile: false,
   },
   {
-    id: 'magnum', name: 'OXBOW', slot: 6, stats: () => tuning.magnum, hold: 'pistol', reload: 'magazine', cycle: 'none', auto: false,
+    id: 'magnum', name: 'OXBOW', slot: 6, stats: () => statsFor('magnum', tuning.magnum), hold: 'pistol', reload: 'magazine', cycle: 'none', auto: false,
     reloadEvents: ['cylinderOut', 'cylinderIn', null], loadEvent: 'shellIn', casing: 'none', sound: 'magnum', scope: false, projectile: false,
   },
   {
-    id: 'rocket', name: 'HAYMAKER', slot: 7, stats: () => tuning.rocket, hold: 'long', reload: 'magazine', cycle: 'none', auto: false,
+    id: 'rocket', name: 'HAYMAKER', slot: 7, stats: () => statsFor('rocket', tuning.rocket), hold: 'long', reload: 'magazine', cycle: 'none', auto: false,
     reloadEvents: [null, 'rocketIn', null], loadEvent: 'rocketIn', casing: 'none', sound: 'rocket', scope: false, projectile: true,
+  },
+  {
+    id: 'heavy', name: 'BLACKTAIL', slot: 8, stats: () => statsFor('heavy', tuning.heavyPistol), hold: 'pistol', reload: 'magazine', cycle: 'none', auto: false,
+    reloadEvents: ['magOut', 'magIn', 'slide'], loadEvent: 'shellIn', casing: 'brass', sound: 'heavyPistol', scope: false, projectile: false,
+  },
+  {
+    id: 'swift', name: 'SPARROW', slot: 9, stats: () => statsFor('swift', tuning.swiftPistol), hold: 'pistol', reload: 'magazine', cycle: 'none', auto: false,
+    reloadEvents: ['magOut', 'magIn', 'slide'], loadEvent: 'shellIn', casing: 'brass', sound: 'swiftPistol', scope: false, projectile: false,
   },
 ];
 

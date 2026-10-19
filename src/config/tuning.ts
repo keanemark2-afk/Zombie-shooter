@@ -64,7 +64,7 @@ export const tuning = {
     infiniteAmmo: true, // Shooting range only: spare ammo never runs out, so you can test guns freely.
     cheatInfiniteAmmo: false, // Cheat for Survival and Score Attack: spare ammo never runs out.
     switchTime: 0.45, // How long swapping to another weapon takes. [0.1 to 2]
-    startWeapon: 'pistol', // The weapon in your hands when a round starts. [options: pistol, pump, drum, smg, rifle, magnum, rocket]
+    startWeapon: 'pistol', // The weapon in your hands when a round starts. [options: pistol, pump, drum, smg, rifle, magnum, rocket, heavy, swift]
   },
 
   // The starter pistol ("Kestrel 9"). Weapon slot 1.
@@ -305,6 +305,74 @@ export const tuning = {
     dismember: 1, // Not used (the blast decides). [0 to 1]
   },
 
+  // Heavy pistol ("Blacktail"). Weapon slot 8. Slow, hard-hitting, punches through a zombie.
+  heavyPistol: {
+    damage: 210, // Firepower: damage per bullet before body-part multipliers. [10 to 1000]
+    pellets: 1, // Bullets fired per shot. [1 to 20]
+    pelletSpread: 0, // How wide extra pellets scatter, in degrees (0 for a single bullet). [0 to 20]
+    falloffStart: 200, // Distance where damage starts to drop off. [1 to 200]
+    falloffEnd: 200, // Distance where damage reaches its lowest. [1 to 400]
+    falloffMin: 1, // Fraction of damage left at long range (1 = no drop-off). [0 to 1]
+    fireInterval: 0.46, // Fire rate: minimum time between shots. Lower = faster. [0.05 to 1.5]
+    capacity: 7, // Bullets per magazine. [1 to 60]
+    reloadTime: 1.7, // Reload speed with bullets still in the gun. [0.2 to 5]
+    emptyReloadTime: 2.2, // Reload speed when the gun is completely empty. [0.2 to 6]
+    focusTime: 0.95, // How long the reticle takes to tighten fully while you hold still. [0.05 to 3]
+    spreadWide: 3.4, // Reticle size (aim wobble) when you first raise the gun, in degrees. [0.2 to 10]
+    spreadTight: 0.2, // Reticle size when fully focused. [0 to 3]
+    spreadMoving: 1.5, // Smallest reticle size while walking and aiming. [0 to 6]
+    fireBloom: 2.4, // How much each shot widens the reticle. [0 to 6]
+    turnBloom: 0.03, // How much the reticle widens per degree you swing the camera. [0 to 0.3]
+    swaySpeed: 1.6, // How fast the laser dot wanders inside the reticle. [0.1 to 6]
+    recoilKick: 3.4, // How far each shot kicks your aim upwards, in degrees. [0 to 8]
+    recoilSideways: 0.8, // Random sideways recoil per shot, in degrees. [0 to 4]
+    recoilRecovery: 7, // How quickly your aim settles back after recoil. Higher = faster. [1 to 30]
+    knockback: 0.45, // How hard each bullet shoves a zombie, in metres. [0 to 3]
+    pierce: 2, // How many extra zombies one bullet can pass through. [0 to 5]
+    blastRange: 0, // Close-range blast reach (0 = none). [0 to 6]
+    blastAngle: 0, // How wide the close-range blast is, in degrees either side of your aim. [0 to 60]
+    blastPush: 0, // How hard the close-range blast shoves. [0 to 8]
+    maxRange: 120, // How far bullets travel. [10 to 400]
+    spareAmmo: 35, // Spare bullets you carry when infinite ammo is off. [0 to 500]
+    headPop: 0.15, // Chance a bullet that hits the head bursts it, at close range. [0 to 1]
+    critChance: 0.05, // Chance any headshot is a critical that bursts the head, with a fully tight reticle. [0 to 1]
+    dismember: 0.08, // Chance a bullet that hits an arm or leg tears it off, at close range. [0 to 1]
+  },
+
+  // Fast, steady pistol ("Sparrow"). Weapon slot 9. Settles quickly and fires fast.
+  swiftPistol: {
+    damage: 68, // Firepower: damage per bullet before body-part multipliers. [10 to 1000]
+    pellets: 1, // Bullets fired per shot. [1 to 20]
+    pelletSpread: 0, // How wide extra pellets scatter, in degrees (0 for a single bullet). [0 to 20]
+    falloffStart: 120, // Distance where damage starts to drop off. [1 to 200]
+    falloffEnd: 200, // Distance where damage reaches its lowest. [1 to 400]
+    falloffMin: 0.8, // Fraction of damage left at long range (1 = no drop-off). [0 to 1]
+    fireInterval: 0.13, // Fire rate: minimum time between shots. Lower = faster. [0.05 to 1.5]
+    capacity: 18, // Bullets per magazine. [1 to 60]
+    reloadTime: 1.15, // Reload speed with bullets still in the gun. [0.2 to 5]
+    emptyReloadTime: 1.5, // Reload speed when the gun is completely empty. [0.2 to 6]
+    focusTime: 0.4, // How long the reticle takes to tighten fully while you hold still. [0.05 to 3]
+    spreadWide: 2.6, // Reticle size (aim wobble) when you first raise the gun, in degrees. [0.2 to 10]
+    spreadTight: 0.12, // Reticle size when fully focused. [0 to 3]
+    spreadMoving: 1, // Smallest reticle size while walking and aiming. [0 to 6]
+    fireBloom: 0.9, // How much each shot widens the reticle. [0 to 6]
+    turnBloom: 0.02, // How much the reticle widens per degree you swing the camera. [0 to 0.3]
+    swaySpeed: 1.2, // How fast the laser dot wanders inside the reticle. [0.1 to 6]
+    recoilKick: 0.9, // How far each shot kicks your aim upwards, in degrees. [0 to 8]
+    recoilSideways: 0.3, // Random sideways recoil per shot, in degrees. [0 to 4]
+    recoilRecovery: 12, // How quickly your aim settles back after recoil. Higher = faster. [1 to 30]
+    knockback: 0.1, // How hard each bullet shoves a zombie, in metres. [0 to 3]
+    pierce: 0, // How many extra zombies one bullet can pass through. [0 to 5]
+    blastRange: 0, // Close-range blast reach (0 = none). [0 to 6]
+    blastAngle: 0, // How wide the close-range blast is, in degrees either side of your aim. [0 to 60]
+    blastPush: 0, // How hard the close-range blast shoves. [0 to 8]
+    maxRange: 120, // How far bullets travel. [10 to 400]
+    spareAmmo: 90, // Spare bullets you carry when infinite ammo is off. [0 to 500]
+    headPop: 0, // Chance a bullet that hits the head bursts it, at close range. [0 to 1]
+    critChance: 0.04, // Chance any headshot is a critical that bursts the head, with a fully tight reticle. [0 to 1]
+    dismember: 0, // Chance a bullet that hits an arm or leg tears it off, at close range. [0 to 1]
+  },
+
   // Rocket and red-barrel explosions.
   explosion: {
     radius: 6, // How far a blast reaches, in metres. [1 to 15]
@@ -327,6 +395,7 @@ export const tuning = {
     torso: 1, // Body shot damage multiplier. [0 to 5]
     arm: 0.6, // Arm shot damage multiplier. [0 to 5]
     leg: 0.75, // Leg shot damage multiplier. [0 to 5]
+    parasite: 3, // Damage multiplier when you hit the parasite that bursts out of a neck. [0 to 10]
   },
 
   // How zombies react to being shot in different places.
@@ -345,6 +414,180 @@ export const tuning = {
     knockbackThreshold: 0.6, // Knockback needed for a torso hit to shove a zombie back a step. [0 to 3]
     knockdownThreshold: 1.6, // Total push from one shot needed to blow a zombie off its feet (a close shotgun blast). [0.2 to 10]
     knockdownTime: 2, // How long a knocked-down zombie lies on its back before getting up. [0.3 to 8]
+  },
+
+  // Grenades you throw (G to throw, B to change type).
+  grenades: {
+    throwSpeed: 14, // How hard a grenade is thrown. [6 to 30]
+    throwTime: 0.5, // How long the throwing animation takes. [0.2 to 1.5]
+    minThrow: 5, // The shortest throw, in metres, even when you aim at your feet. [1 to 15]
+    maxThrow: 22, // The furthest throw, in metres. [5 to 50]
+    fragFuse: 2.3, // Seconds before a frag grenade goes off. [0.5 to 6]
+    fragRadius: 5.5, // How far a frag grenade's blast reaches, in metres. [1 to 15]
+    fragDamage: 1500, // Damage at the centre of a frag grenade blast. [0 to 10000]
+    fragGibRadius: 2, // Zombies this close to a frag grenade are blown to pieces. [0 to 6]
+    fragLimbRadius: 4, // Zombies this close may lose arms and legs. [0 to 10]
+    fragPush: 3.2, // How hard the blast throws zombies off their feet. [0 to 10]
+    fragPlayerDamage: 55, // Health you lose from your own blast at the very centre. [0 to 300]
+    flashFuse: 1.5, // Seconds before a flash grenade goes off. [0.5 to 6]
+    flashRadius: 11, // How far a flash grenade reaches, in metres. [2 to 30]
+    flashStun: 5, // How long zombies are blinded and helpless, in seconds. [0 to 20]
+    flashBlind: 2.2, // How long you are blinded if you look at your own flash. [0 to 8]
+    fireDuration: 8, // How long the flames from an incendiary grenade burn. [1 to 30]
+    fireRadius: 3.4, // How wide the fire on the ground is, in metres. [0.5 to 10]
+    fireDamage: 85, // Damage per second to a zombie standing in the flames. [0 to 1000]
+    burnTime: 5, // How long a zombie keeps burning after it leaves the flames. [0 to 20]
+    burnDamage: 55, // Damage per second to a burning zombie. [0 to 1000]
+    firePlayerDamage: 14, // Health per second you lose standing in the flames. [0 to 200]
+    startFrag: 2, // Frag grenades you start a Survival run with. [0 to 20]
+  },
+
+  // Zombies that throw axes (some Harvesters).
+  axeThrower: {
+    chance: 0.5, // Chance a Harvester carries an axe to throw instead of a tool. [0 to 1]
+    minRange: 6, // It won't throw if you are closer than this. [1 to 20]
+    maxRange: 19, // It won't throw if you are further than this. [5 to 50]
+    windup: 0.95, // Warning time while it raises the axe, in seconds. Shoot its arm to stop the throw. [0.2 to 3]
+    speed: 17, // How fast the axe flies. [5 to 40]
+    damage: 26, // Health you lose if the axe hits you. [0 to 200]
+    cooldown: 3, // Seconds before it can throw again (it picks up another axe). [0 to 20]
+  },
+
+  // The Fuse-man, who lights and lobs dynamite.
+  dynamiteThrower: {
+    minRange: 7, // It won't throw if you are closer than this. [1 to 20]
+    maxRange: 20, // It won't throw if you are further than this. [5 to 50]
+    lightTime: 0.95, // How long it takes to light the fuse before throwing. Shoot its hand to blow it up. [0.2 to 3]
+    fuse: 2.8, // Seconds from lighting to the blast. [0.5 to 8]
+    throwSpeed: 15, // How hard it throws. [5 to 30]
+    radius: 4.2, // How far a dynamite blast reaches, in metres. [1 to 15]
+    damage: 900, // Damage at the centre of the blast. [0 to 10000]
+    playerDamage: 50, // Health you lose at the very centre of the blast. [0 to 300]
+    cooldown: 3.5, // Seconds before it lights another stick. [0 to 20]
+  },
+
+  // The Plank-bearer's shield.
+  shieldBearer: {
+    shieldHealth: 750, // How much punishment the shield takes before it splinters. [50 to 5000]
+    bulletsThrough: 0.4, // Fraction of a bullet's damage that carries on if it breaks the shield. [0 to 1]
+  },
+
+  // The Hulk (brute elite). Most of its numbers are in enemyTypes.
+  brute: {
+    windup: 1.05, // Warning time before it swings, in seconds. [0.2 to 3]
+    pushBonus: 2.2, // How much harder its blows shove you. [1 to 6]
+    staggerTime: 2.4, // How long a headshot staggers it, in seconds. [0.2 to 6]
+    swingRange: 1.9, // How close it must be to swing at you, in metres. [1 to 4]
+  },
+
+  // The Sawyer (chainsaw elite). Most of its numbers are in enemyTypes.
+  chainsaw: {
+    windup: 1.15, // Warning time while it raises the saw, in seconds. Parry it or get out of the way. [0.3 to 3]
+    reach: 2.1, // How close it must be to swing the saw at you, in metres. [1 to 4]
+    damage: 80, // Health you lose from a hit on the lower difficulties. [0 to 500]
+    instantKillFrom: 'hard', // Difficulty from which one hit kills you outright. [options: easy, normal, hard, pro, never]
+    revRange: 38, // How far away you can hear it revving, in metres. [5 to 100]
+    perfectParryStun: 3.2, // How long a perfect parry stuns it, in seconds. [0.5 to 10]
+    parryKnifeCost: 38, // Knife wear from parrying a chainsaw. [0 to 100]
+  },
+
+  // The parasite that can burst out of a neck when a head is destroyed (no overkill).
+  parasite: {
+    baseChance: 0.18, // Chance a destroyed head lets a parasite out, in wave 1. [0 to 1]
+    chancePerWave: 0.03, // How much more likely it gets each wave. [0 to 0.5]
+    maxChance: 0.6, // The most likely it ever gets. [0 to 1]
+    overkillRatio: 2.2, // A hit this many times the zombie's remaining health is overkill: no parasite. [1 to 10]
+    health: 420, // How much damage the parasite takes before it dies (and the body with it). [10 to 5000]
+    bodyScale: 0.2, // How much damage the body takes once the parasite is out (hit the parasite instead). [0 to 1]
+    mutateTime: 1.7, // How long the zombie writhes while the parasite grows, in seconds. [0.3 to 5]
+    speed: 1.2, // How fast it moves, compared with before. [0.5 to 3]
+    whipRange: 2.9, // How far its tentacle reaches, in metres. [1 to 6]
+    whipWindup: 0.55, // Warning time before the tentacle lashes out, in seconds. [0.1 to 2]
+    whipDamage: 26, // Health you lose from a lash. [0 to 200]
+  },
+
+  // Gun upgrades sold by the Trader (Upgrade tab). Each of a gun's four stats goes up in levels.
+  upgrades: {
+    firepowerPerLevel: 0.18, // How much more damage each Firepower level adds (0.18 = 18% of the gun's normal damage). [0 to 1]
+    fireRatePerLevel: 0.07, // How much shorter the wait between shots gets with each Fire rate level (a fraction). [0 to 0.15]
+    reloadPerLevel: 0.09, // How much quicker each Reload speed level makes reloading (a fraction). [0 to 0.15]
+    capacityPerLevel: 0.2, // How much more each Capacity level adds to the magazine (0.2 = a fifth of the normal size). [0 to 1]
+    levelsPistols: 5, // How many levels each stat has on the three pistols. [1 to 8]
+    levelsOthers: 4, // How many levels each stat has on every other gun. [1 to 8]
+  },
+
+  // What the Trader charges and pays, in coins.
+  shop: {
+    weapon: {
+      pistol: 1500, // Kestrel 9 (also what he pays you for it, halved). [0 to 100000]
+      pump: 2500, // Bramble 12 shotgun. [0 to 100000]
+      drum: 4500, // Thresher shotgun. [0 to 100000]
+      smg: 3500, // Magpie submachine gun. [0 to 100000]
+      rifle: 5000, // Heron rifle. [0 to 100000]
+      magnum: 7000, // Oxbow magnum. [0 to 100000]
+      rocket: 9000, // Haymaker rocket launcher. [0 to 100000]
+      heavy: 3000, // Blacktail heavy pistol. [0 to 100000]
+      swift: 2500, // Sparrow fast pistol. [0 to 100000]
+    },
+    ammoPack: {
+      pistol: 120, // One pack of Kestrel 9 ammo. [0 to 10000]
+      pump: 140, // One pack of Bramble 12 shells. [0 to 10000]
+      drum: 220, // One pack of Thresher shells. [0 to 10000]
+      smg: 300, // One pack of Magpie ammo. [0 to 10000]
+      rifle: 250, // One pack of Heron ammo. [0 to 10000]
+      magnum: 600, // One pack of Oxbow ammo. [0 to 10000]
+      rocket: 1500, // One Haymaker rocket. [0 to 10000]
+      heavy: 180, // One pack of Blacktail ammo. [0 to 10000]
+      swift: 200, // One pack of Sparrow ammo. [0 to 10000]
+    },
+    herbG: 300, // A green herb. [0 to 10000]
+    herbR: 400, // A red herb. [0 to 10000]
+    herbY: 400, // A yellow herb. [0 to 10000]
+    spray: 1800, // A first-aid spray. [0 to 20000]
+    frag: 700, // A frag grenade. [0 to 10000]
+    flash: 900, // A flash grenade. [0 to 10000]
+    fire: 900, // An incendiary grenade. [0 to 10000]
+    stock: 3000, // A steadying stock. [0 to 50000]
+    scope: 4500, // A sight scope. [0 to 50000]
+    longMag: 3500, // A long magazine. [0 to 50000]
+    upgradeBase: {
+      pistol: 500, // Base cost of one Kestrel 9 upgrade level (grows with each level). [0 to 20000]
+      pump: 650, // Base cost of one Bramble 12 upgrade level. [0 to 20000]
+      drum: 800, // Base cost of one Thresher upgrade level. [0 to 20000]
+      smg: 700, // Base cost of one Magpie upgrade level. [0 to 20000]
+      rifle: 800, // Base cost of one Heron upgrade level. [0 to 20000]
+      magnum: 1000, // Base cost of one Oxbow upgrade level. [0 to 20000]
+      rocket: 1200, // Base cost of one Haymaker upgrade level. [0 to 20000]
+      heavy: 600, // Base cost of one Blacktail upgrade level. [0 to 20000]
+      swift: 500, // Base cost of one Sparrow upgrade level. [0 to 20000]
+    },
+    factorFirepower: 1.4, // Firepower costs this many times the base. [0.1 to 5]
+    factorFireRate: 1, // Fire rate costs this many times the base. [0.1 to 5]
+    factorReload: 0.7, // Reload speed costs this many times the base. [0.1 to 5]
+    factorCapacity: 0.85, // Capacity costs this many times the base. [0.1 to 5]
+    exclusive: {
+      pistol: 6000, // Kestrel 9 Exclusive Upgrade (5x critical chance). [0 to 100000]
+      pump: 12000, // Bramble 12 Exclusive Upgrade (more pellets). [0 to 100000]
+      drum: 14000, // Thresher Exclusive Upgrade (faster fire). [0 to 100000]
+      smg: 12000, // Magpie Exclusive Upgrade (much bigger magazine). [0 to 100000]
+      rifle: 14000, // Heron Exclusive Upgrade (power and pierce). [0 to 100000]
+      magnum: 18000, // Oxbow Exclusive Upgrade (speed loader). [0 to 100000]
+      rocket: 22000, // Haymaker Exclusive Upgrade (second rocket). [0 to 100000]
+      heavy: 9000, // Blacktail Exclusive Upgrade (pierces five enemies). [0 to 100000]
+      swift: 8000, // Sparrow Exclusive Upgrade (1.5x firepower). [0 to 100000]
+    },
+    knifeRepair: 1500, // What a completely worn knife costs to repair (less if it is only a little worn). [0 to 10000]
+    caseTall: 3500, // The 7x12 case. [0 to 100000]
+    caseWide: 7000, // The 8x12 case. [0 to 100000]
+    caseDeep: 12000, // The 8x13 case. [0 to 100000]
+    caseGrand: 20000, // The 9x13 case. [0 to 100000]
+    sellFraction: 0.5, // Guns and attachments sell for this share of their price. [0 to 1]
+  },
+
+  // The Trader's stall appears between Survival waves.
+  trader: {
+    talkRange: 3.6, // How close you must stand to the stall to trade, in metres. [1 to 10]
+    startAmmo: 24, // Spare rounds that come with a gun you buy. [0 to 200]
   },
 
   // Blood, bursting heads and torn-off limbs (the Gore choice in Settings can tone it down).
@@ -543,7 +786,7 @@ export const tuning = {
       damage: 2.6, // Damage it does to you compared with the basic zombie. [0 to 20]
       points: 1200, // Score Attack points for killing one. [0 to 10000]
       coins: 8, // How many coins it drops compared with the usual pile. [0 to 20]
-      size: 1.4, // How big its body is. [0.5 to 2]
+      size: 1.5, // How big its body is. [0.5 to 2]
     },
     chainsaw: {
       health: 6, // Health compared with the basic zombie. [0.1 to 30]

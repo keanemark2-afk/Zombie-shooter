@@ -96,8 +96,10 @@ const SHIRTS = ['#8f8468', '#66717d', '#806b55', '#6f7756', '#827a72', '#93806c'
 const PANTS = ['#55503f', '#4c5361', '#615443', '#535a46', '#46433d'];
 const SKINS = ['#8a9a7c', '#97a283', '#829079', '#9a9c86'];
 
+export type LookVariant = 'normal' | 'brute' | 'sawyer' | 'runner';
+
 /** A random-looking but repeatable zombie outfit. */
-export function zombieLook(seed: number): CharacterLook {
+export function zombieLook(seed: number, variant: LookVariant = 'normal'): CharacterLook {
   const rand = seededRandom(seed * 7919 + 13);
   const pick = <T,>(list: T[]) => list[Math.floor(rand() * list.length)];
   const skinColor = pick(SKINS);
@@ -121,7 +123,7 @@ export function zombieLook(seed: number): CharacterLook {
     new MeshStandardMaterial({ color: '#d8cf9a', emissive: '#6b5a20', emissiveIntensity: 0.6, roughness: 0.3 }),
   );
   const hair = rand() < 0.6 ? material('zhair', () => new MeshStandardMaterial({ color: '#2b2620', roughness: 1 })) : null;
-  return {
+  const look: CharacterLook = {
     skin,
     shirt,
     sleeves: rand() < 0.5 ? shirt : skin,
@@ -136,6 +138,26 @@ export function zombieLook(seed: number): CharacterLook {
     hunch: 0.18 + rand() * 0.15,
     zombie: true,
   };
+  if (variant === 'brute') {
+    // Bare-chested and enormous.
+    look.shirt = skin;
+    look.sleeves = skin;
+    look.pants = material('zbrutepants', () => new MeshStandardMaterial({ map: fabric('#3a342c', '#14110e', 90, { weave: 0.05, holes: 3 }), roughness: 0.95 }));
+    look.hair = null;
+    look.build *= 1.4;
+    look.hunch += 0.14;
+  } else if (variant === 'sawyer') {
+    const leather = material('zleather', () => new MeshStandardMaterial({ map: fabric('#3a2a20', '#150f0b', 95, { weave: 0.03, stains: 1.8 }), roughness: 0.75 }));
+    look.shirt = leather;
+    look.sleeves = leather;
+    look.pants = material('zsawpants', () => new MeshStandardMaterial({ map: fabric('#26211c', '#0c0a08', 96, { weave: 0.05 }), roughness: 0.95 }));
+    look.hair = null;
+    look.hunch = 0.1;
+  } else if (variant === 'runner') {
+    look.build *= 0.88;
+    look.hunch += 0.1;
+  }
+  return look;
 }
 
 /** The player: dark jacket, readable silhouette from behind. */
@@ -157,6 +179,26 @@ export function playerLook(): CharacterLook {
     build: 1.04,
     height: 1.0,
     hunch: 0,
+    zombie: false,
+  };
+}
+
+/** The Trader: a hooded figure in a long dark cloak, gloved hands, eyes glowing like two embers. */
+export function traderLook(): CharacterLook {
+  const cloak = material('tcloak', () => new MeshStandardMaterial({ map: fabric('#3b2a3a', '#17101a', 400, { weave: 0.05, stains: 0.8 }), roughness: 0.9 }));
+  return {
+    skin: material('tskin', () => new MeshStandardMaterial({ color: '#1a1315', roughness: 0.8 })),
+    shirt: cloak,
+    sleeves: cloak,
+    forearms: material('tglove', () => new MeshStandardMaterial({ color: '#2a2018', roughness: 0.7 })),
+    pants: cloak,
+    shoes: material('tboots', () => new MeshStandardMaterial({ color: '#17110e', roughness: 0.6 })),
+    hands: material('tglove', () => new MeshStandardMaterial()),
+    hair: null,
+    eyes: material('teyes', () => new MeshStandardMaterial({ color: '#000000', emissive: '#ffb347', emissiveIntensity: 2.4 })),
+    build: 1.12,
+    height: 1.02,
+    hunch: 0.1,
     zombie: false,
   };
 }

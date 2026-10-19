@@ -21,6 +21,7 @@ export class PlayerInputReader {
   private pendingGrenade = false;
   private pendingGrenadeCycle = false;
   private pendingCase = false;
+  private pendingInteract = false;
   private pendingKnife = false;
   private pendingPause = false;
   private pendingSlot: number | null = null;
@@ -63,6 +64,7 @@ export class PlayerInputReader {
     this.pendingGrenade ||= this.pressed('grenade');
     this.pendingGrenadeCycle ||= this.pressed('nextGrenade');
     this.pendingCase ||= this.pressed('caseOpen');
+    this.pendingInteract ||= this.pressed('interact');
     this.pendingKnife ||= this.pressed('knife');
     this.pendingPause ||= this.pressed('pause');
     slotKeys.forEach((key, i) => {
@@ -93,6 +95,13 @@ export class PlayerInputReader {
   takeCase(): boolean {
     const c = this.pendingCase;
     this.pendingCase = false;
+    return c;
+  }
+
+  /** Was "use / talk" pressed (E / Cross)? Clears the request. */
+  takeInteract(): boolean {
+    const c = this.pendingInteract;
+    this.pendingInteract = false;
     return c;
   }
 
@@ -156,7 +165,7 @@ export class PlayerInputReader {
   clear(): void {
     this.pendingFire = this.pendingReload = this.pendingSprint = this.pendingPause = false;
     this.pendingMelee = this.pendingKnife = this.pendingHeal = this.pendingGrenade = this.pendingGrenadeCycle = false;
-    this.pendingCase = false;
+    this.pendingCase = this.pendingInteract = false;
     this.pendingSlot = null;
     this.pendingCycle = 0;
   }

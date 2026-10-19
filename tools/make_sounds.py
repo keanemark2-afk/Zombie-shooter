@@ -80,6 +80,8 @@ gunshot('revolver', 'Smith & Wesson 642/V_27P.wav', 'Smith & Wesson 642/V_22P.wa
 # Short and tight so rapid fire doesn't turn to mush.
 gunshot('smg', 'Walther PPQ/X_39P.wav', 'Walther PPQ/X_31P.wav', dur=0.45, hold=0.1, far_gain_db=-10)
 gunshot('rifle', 'Mosin Nagant/M_21P.wav', 'Mosin Nagant/M_26P.wav', dur=2.4, hold=0.12, far_gain_db=-5)
+# The fast, steady pistol: a small, snappy 9mm.
+gunshot('swift', 'Bersa/F_47P.wav', 'Bersa/F_41P.wav', dur=0.8, hold=0.1, far_gain_db=-8)
 # The big revolver: a revolver's crack with a heavy rifle's rolling echo underneath.
 gunshot('magnum', 'Smith & Wesson 642/V_27P.wav', '1917/B_16P.wav', dur=2.0, hold=0.12, far_gain_db=-3)
 

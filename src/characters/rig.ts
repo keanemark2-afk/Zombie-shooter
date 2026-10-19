@@ -42,6 +42,8 @@ export interface Rig {
   /** Attach points in the palms. */
   handR: Object3D;
   handL: Object3D;
+  /** Adds a mesh (a shield plank, the parasite) that bullets can hit, tagged with its zone. */
+  addPart(mesh: Mesh, zone: Zone): void;
   setHitboxView(on: boolean): void;
 }
 
@@ -52,6 +54,8 @@ const ZONE_COLORS: Record<Zone, string> = {
   armR: '#30b0c7',
   legL: '#5856d6',
   legR: '#af52de',
+  parasite: '#ff2d92',
+  shield: '#c98f4a',
 };
 
 const MOUTH = new MeshBasicMaterial({ color: '#1a0d0a' });
@@ -160,6 +164,11 @@ export function buildRig(look: CharacterLook): Rig {
     parts,
     handR,
     handL,
+    addPart(mesh: Mesh, zone: Zone) {
+      mesh.userData.zone = zone;
+      if (!parts.includes(mesh)) parts.push(mesh);
+      originals.set(mesh, mesh.material as Material);
+    },
     setHitboxView(on: boolean) {
       for (const m of parts) {
         const zone = m.userData.zone as Zone;

@@ -4,8 +4,8 @@
 
 export type MeleeMove = 'roundhouse' | 'frontKick' | 'suplex' | 'finisher';
 
-/** What a zombie is open to: staggered by a headshot, down on one knee, or lying on the ground. */
-export type Openness = 'head' | 'kneel' | 'down' | null;
+/** What a zombie is open to: staggered by a headshot, down on one knee, lying on the ground, or holding up a shield a kick can break. */
+export type Openness = 'head' | 'kneel' | 'down' | 'shield' | null;
 
 /** On-screen word for each move. */
 export const MELEE_NAMES: Record<MeleeMove, string> = {
@@ -27,6 +27,8 @@ export function meleeMoveFor(openTo: Openness, facingAway: boolean): MeleeMove |
       return facingAway ? 'suplex' : 'frontKick';
     case 'down':
       return 'finisher';
+    case 'shield':
+      return facingAway ? null : 'frontKick';
     default:
       return null;
   }

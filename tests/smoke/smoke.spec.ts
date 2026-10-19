@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { fastMode, frames, hold, installFakePad, padButton, padTap, shootAt, state, waitForDummyState, waitForFrames, watchErrors } from './helpers';
+import { frames, hold, installFakePad, padButton, padTap, shootAt, state, waitForDummyState, waitForFrames, watchErrors } from './helpers';
 
 // Loads the game in a real (hidden) browser and plays it with simulated
 // keyboard, mouse and gamepad input. Any error in the browser fails the test.
@@ -36,7 +36,7 @@ test('shooting range: aiming, reactions, reload and respawn', async ({ page }) =
   await expect(page.locator('.menu')).toBeHidden();
   // Clicking the menu switches the sound on, and the recorded gunshots load.
   await expect.poll(async () => (await state(page)).audioRunning).toBe(true);
-  await expect.poll(async () => (await state(page)).soundsLoaded, { timeout: 60_000 }).toBe(12);
+  await expect.poll(async () => (await state(page)).soundsLoaded, { timeout: 60_000 }).toBe(13);
   await expect(page.locator('.ammo')).toBeVisible();
   expect((await state(page)).mode).toBe('range');
   await page.evaluate(() => (window.__deadAcre!.tuning.range.dummyDistance = 8));

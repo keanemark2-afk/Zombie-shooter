@@ -172,6 +172,8 @@ export class Effects {
   private readonly boomLight: PointLight;
   private boomTime = 0;
   private boomSize = 1;
+  /** One light that follows the fire (lights are never added or removed while playing). */
+  private readonly fireLight: PointLight;
   private readonly laserBeam: Mesh;
   private readonly laserDot: Sprite;
   /** Called when a casing first hits the ground (for its tinkle or thunk sound). */
@@ -202,6 +204,8 @@ export class Effects {
     scene.add(this.boom);
     this.boomLight = new PointLight('#ff9a4a', 0, 28, 2);
     scene.add(this.boomLight);
+    this.fireLight = new PointLight('#ff8a2e', 0, 14, 2);
+    scene.add(this.fireLight);
 
     this.laserBeam = new Mesh(
       new CylinderGeometry(0.0022, 0.0022, 1, 4, 1, true).translate(0, 0.5, 0),
@@ -317,6 +321,7 @@ export class Effects {
     this.boom.visible = true;
     this.boomTime = 0;
     this.boomSize = size;
+    this.boomLight.color.set('#ff9a4a');
     this.boomLight.position.copy(at).y += 0.6;
     this.boomLight.intensity = 260 * size;
     // Fire.
@@ -345,6 +350,48 @@ export class Effects {
       this.smoke.spawn({ position: at, velocity: v, life: 0.9 + Math.random() * 0.6, size: 0.04 + Math.random() * 0.05, color, gravity: 1, drag: 0.4 });
     }
     if (at.y - groundY < 1.2) this.scorch.add(v2.set(at.x, groundY, at.z), UP, 2.6 * size);
+  }
+
+  /** Licks of flame and smoke at one spot. `size` 1 is a burning zombie, more is a bonfire. */
+  flame(at: Vector3, size = 1): void {
+    for (let i = 0; i < Math.max(1, Math.round(2 * size)); i++) {
+      v.set((Math.random() - 0.5) * 0.5, 1.2 + Math.random() * 1.4, (Math.random() - 0.5) * 0.5);
+      color.setRGB(1, 0.35 + Math.random() * 0.4, 0.05 + Math.random() * 0.1);
+      v2.set(at.x + (Math.random() - 0.5) * 0.5 * size, at.y, at.z + (Math.random() - 0.5) * 0.5 * size);
+      this.glow.spawn({ position: v2, velocity: v, life: 0.3 + Math.random() * 0.35, size: (0.16 + Math.random() * 0.16) * size, grow: 0.1, color, drag: 1.5, gravity: -0.1 });
+    }
+    if (Math.random() < 0.45) {
+      v.set((Math.random() - 0.5) * 0.4, 1 + Math.random() * 0.8, (Math.random() - 0.5) * 0.4);
+      const g = 0.1 + Math.random() * 0.08;
+      color.setRGB(g, g, g);
+      this.smoke.spawn({ position: at, velocity: v, life: 1.1 + Math.random(), size: 0.2 * size, grow: 3.5, color, alpha: 0.4, drag: 1.2, gravity: -0.05 });
+    }
+  }
+
+  /** The glow cast by flames on the ground (strength 0 turns it off). */
+  setFireLight(at: Vector3 | null, strength: number): void {
+    if (!at || strength <= 0) {
+      this.fireLight.intensity = 0;
+      return;
+    }
+    this.fireLight.position.set(at.x, at.y + 1, at.z);
+    this.fireLight.intensity = (14 + Math.random() * 5) * strength;
+  }
+
+  /** A flash grenade: a blinding white burst. */
+  flashBurst(at: Vector3): void {
+    this.boom.position.copy(at);
+    this.boom.visible = true;
+    this.boomTime = 0;
+    this.boomSize = 1.8;
+    this.boomLight.color.set('#ffffff');
+    this.boomLight.position.copy(at).y += 0.8;
+    this.boomLight.intensity = 500;
+    color.set('#ffffff');
+    for (let i = 0; i < 30; i++) {
+      v.set(Math.random() - 0.5, Math.random() - 0.3, Math.random() - 0.5).normalize().multiplyScalar(6 + Math.random() * 8);
+      this.glow.spawn({ position: at, velocity: v, life: 0.2 + Math.random() * 0.3, size: 0.05, color, drag: 3 });
+    }
   }
 
   /** Smoke and flame behind a flying rocket. */

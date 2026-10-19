@@ -23,11 +23,41 @@ describe('Supplies', () => {
     expect(s.healItems).toBe(2);
   });
 
-  it('refuses an item when full', () => {
+  it('refuses an item when the case is full', () => {
     const s = new Supplies();
-    s.fits = () => false;
+    // A 7x10 case holds 35 herbs (each takes 1x2 squares).
+    for (let i = 0; i < 35; i++) expect(s.addNew('herb', 'G'), `herb ${i}`).not.toBeNull();
     expect(s.addNew('herb', 'G')).toBeNull();
-    expect(s.items).toHaveLength(0);
+    expect(s.items).toHaveLength(35);
+  });
+
+  it('puts every item somewhere on the grid, and frees the space when one is used', () => {
+    const s = new Supplies();
+    const a = s.addNew('treasure', 'crown')!; // 2x2
+    const b = s.addNew('weapon', 'pump')!; // 7x2
+    expect([a.x, a.y]).toEqual([0, 0]);
+    expect(b.x).toBeDefined();
+    const free = s.grid.freeCells;
+    s.remove(a.id);
+    expect(s.grid.freeCells).toBe(free + 4);
+  });
+
+  it('has no limit on the practice range', () => {
+    const s = new Supplies();
+    s.unlimited = true;
+    for (let i = 0; i < 60; i++) expect(s.addNew('herb', 'G')).not.toBeNull();
+  });
+
+  it('a bigger case holds more', () => {
+    const s = new Supplies();
+    for (let i = 0; i < 35; i++) s.addNew('herb', 'G');
+    expect(s.addNew('herb', 'G')).toBeNull();
+    s.upgradeCase(1); // 7x12
+    expect([s.grid.width, s.grid.height]).toEqual([7, 12]);
+    expect(s.addNew('herb', 'G')).not.toBeNull();
+    s.clear();
+    expect([s.grid.width, s.grid.height]).toEqual([7, 10]);
+    expect(s.caseTier).toBe(0);
   });
 
   it('mixes herbs: the second one is used up', () => {

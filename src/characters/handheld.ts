@@ -17,6 +17,9 @@ const gunMetal = new MeshStandardMaterial({ color: '#3a3d42', roughness: 0.4, me
 const gunGrip = new MeshStandardMaterial({ color: '#1c1a18', roughness: 0.8, metalness: 0.1 });
 const laserBody = new MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.5, metalness: 0.5 });
 const wood = new MeshStandardMaterial({ color: '#5a4330', roughness: 0.9 });
+const heavySteel = new MeshStandardMaterial({ color: '#2b2e33', roughness: 0.35, metalness: 0.9 });
+const slimMetal = new MeshStandardMaterial({ color: '#555a62', roughness: 0.3, metalness: 0.9 });
+const gripWood = new MeshStandardMaterial({ color: '#4a2f1e', roughness: 0.7 });
 const rustyBlade = new MeshStandardMaterial({ color: '#6b5b4e', roughness: 0.55, metalness: 0.6 });
 
 export interface PistolModel {
@@ -31,32 +34,44 @@ export interface PistolModel {
   ejectionPort: Object3D;
 }
 
-export function buildPistol(): PistolModel {
+export type PistolStyle = 'standard' | 'heavy' | 'swift';
+
+export function buildPistol(style: PistolStyle = 'standard'): PistolModel {
   const group = new Group();
   const noHit = (m: Mesh) => {
     m.castShadow = true;
     m.raycast = () => {};
     return m;
   };
-  const slide = noHit(new Mesh(new BoxGeometry(0.03, 0.19, 0.038), gunMetal));
-  slide.position.set(0, -0.075, -0.05);
+  // The heavy pistol is chunkier and longer; the fast one is slim with a compensator.
+  const w = style === 'heavy' ? 1.35 : style === 'swift' ? 0.85 : 1;
+  const len = style === 'heavy' ? 1.18 : style === 'swift' ? 0.94 : 1;
+  const metal = style === 'heavy' ? heavySteel : style === 'swift' ? slimMetal : gunMetal;
+  const slide = noHit(new Mesh(new BoxGeometry(0.03 * w, 0.19 * len, 0.038 * (style === 'heavy' ? 1.2 : 1)), metal));
+  slide.position.set(0, -0.075 - (len - 1) * 0.09, -0.05);
   group.add(slide);
-  const frame = noHit(new Mesh(new BoxGeometry(0.027, 0.15, 0.025), gunMetal));
-  frame.position.set(0, -0.06, -0.022);
+  const frame = noHit(new Mesh(new BoxGeometry(0.027 * w, 0.15 * len, 0.025), metal));
+  frame.position.set(0, -0.06 - (len - 1) * 0.07, -0.022);
   group.add(frame);
-  const grip = noHit(new Mesh(new BoxGeometry(0.029, 0.045, 0.11), gunGrip));
+  const grip = noHit(new Mesh(new BoxGeometry(0.029 * w, 0.045, 0.11), style === 'heavy' ? gripWood : gunGrip));
   grip.position.set(0, 0.0, 0.03);
   grip.rotation.x = -0.25;
   group.add(grip);
-  const guard = noHit(new Mesh(new BoxGeometry(0.01, 0.05, 0.03), gunMetal));
+  const guard = noHit(new Mesh(new BoxGeometry(0.01, 0.05, 0.03), metal));
   guard.position.set(0, -0.04, 0.0);
   group.add(guard);
   const laserBox = noHit(new Mesh(new BoxGeometry(0.022, 0.05, 0.022), laserBody));
   laserBox.position.set(0, -0.115, -0.012);
   group.add(laserBox);
+  if (style === 'swift') {
+    const comp = noHit(new Mesh(new BoxGeometry(0.02, 0.035, 0.03), laserBody));
+    comp.position.set(0, -0.19, -0.05);
+    group.add(comp);
+  }
+  const reach = (len - 1) * 0.19;
 
   const muzzle = new Object3D();
-  muzzle.position.set(0, -0.172, -0.05);
+  muzzle.position.set(0, -0.172 - reach - (style === 'swift' ? 0.03 : 0), -0.05);
   group.add(muzzle);
   const laser = new Object3D();
   laser.position.set(0, -0.142, -0.012);

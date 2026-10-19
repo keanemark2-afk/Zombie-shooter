@@ -73,6 +73,14 @@ export class PlayerHealth {
     return done;
   }
 
+  /** Slow damage over time (flames): ignores the short protection after a hit. Returns the damage done. */
+  drain(amount: number): number {
+    if (this.dead || amount <= 0) return 0;
+    const done = Math.min(this.current, amount);
+    this.current -= done;
+    return done;
+  }
+
   /** Instant death (the chainsaw), ignoring protection. */
   kill(): void {
     this.current = 0;

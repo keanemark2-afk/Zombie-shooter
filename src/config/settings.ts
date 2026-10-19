@@ -4,6 +4,7 @@
 export type CrosshairStyle = 'ring' | 'cross' | 'dot' | 'brackets' | 'laser' | 'none';
 export type GunshotSound = 'recorded' | 'synth';
 export type GoreLevel = 'off' | 'stylized' | 'full';
+export type DifficultyId = 'easy' | 'normal' | 'hard' | 'pro';
 
 export interface Settings {
   crosshair: CrosshairStyle;
@@ -15,6 +16,8 @@ export interface Settings {
   gunshotSound: GunshotSound;
   /** Blood and dismemberment: none, blood only (no flying scraps), or everything. */
   gore: GoreLevel;
+  /** How hard the game is (enemies hit harder, ammo is scarcer, the chainsaw kills in one hit on the hardest). */
+  difficulty: DifficultyId;
 }
 
 export const CROSSHAIR_STYLES: Array<{ id: CrosshairStyle; label: string; hint: string }> = [
@@ -53,6 +56,7 @@ const DEFAULTS: Settings = {
   laserBeam: true,
   gunshotSound: 'recorded',
   gore: 'full',
+  difficulty: 'normal',
 };
 
 const KEY = 'deadAcre.settings';
@@ -67,6 +71,7 @@ function load(): Settings {
     if (typeof saved.laserBeam === 'boolean') s.laserBeam = saved.laserBeam;
     if (saved.gunshotSound === 'recorded' || saved.gunshotSound === 'synth') s.gunshotSound = saved.gunshotSound;
     if (GORE_LEVELS.some((g) => g.id === saved.gore)) s.gore = saved.gore!;
+    if (saved.difficulty === 'easy' || saved.difficulty === 'normal' || saved.difficulty === 'hard' || saved.difficulty === 'pro') s.difficulty = saved.difficulty;
   } catch {
     // No saved settings (or the browser blocks storage): use the defaults.
   }

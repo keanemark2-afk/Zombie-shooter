@@ -1,5 +1,7 @@
 import { herbEffect, mixHerbs } from '../combat/health';
-import { makeItem, type GrenadeKind, type Item, type ItemKind } from './items';
+import { CASE_TIERS } from './caseTiers';
+import { CaseGrid } from './grid';
+import { itemDef, makeItem, type GrenadeKind, type Item, type ItemKind } from './items';
 
 /**
  * What you carry besides your guns: herbs, sprays, grenades, treasure and
@@ -9,13 +11,22 @@ import { makeItem, type GrenadeKind, type Item, type ItemKind } from './items';
 export class Supplies {
   coins = 0;
   items: Item[] = [];
-  /** Can this item be added right now? (The case says no when it is full.) */
-  fits: (item: Item) => boolean = () => true;
+  /** Where each item sits in the attache case. */
+  readonly grid = new CaseGrid<Item>(CASE_TIERS[0].w, CASE_TIERS[0].h, (it) => itemDef(it));
+  /** Which case you own (an index into CASE_TIERS). */
+  caseTier = 0;
+  /** No limit on what you carry (the practice range). */
+  unlimited = false;
   /** Called whenever the list changes (the HUD redraws). */
   onChange: () => void = () => {};
 
+  /** Can this item be added right now? (The case says no when it is full.) */
+  fits(item: Item): boolean {
+    return this.unlimited || this.grid.hasRoomFor(item);
+  }
+
   add(item: Item): boolean {
-    if (!this.fits(item)) return false;
+    if (!this.unlimited && !this.grid.autoPlace(item)) return false;
     this.items.push(item);
     this.onChange();
     return true;
@@ -30,6 +41,7 @@ export class Supplies {
     const i = this.items.findIndex((it) => it.id === id);
     if (i < 0) return null;
     const [item] = this.items.splice(i, 1);
+    this.grid.remove(item);
     this.onChange();
     return item;
   }
@@ -56,13 +68,33 @@ export class Supplies {
     if (!key) return null;
     a.key = key;
     this.items.splice(this.items.indexOf(b), 1);
+    this.grid.remove(b);
     this.onChange();
     return a;
+  }
+
+  /** Packs the case tidily. */
+  sort(): boolean {
+    const ok = this.grid.sort();
+    this.onChange();
+    return ok;
+  }
+
+  /** Swaps to a bigger case; everything in it stays where it is. */
+  upgradeCase(tier: number): void {
+    const t = CASE_TIERS[Math.min(tier, CASE_TIERS.length - 1)];
+    this.caseTier = Math.min(tier, CASE_TIERS.length - 1);
+    this.grid.resize(t.w, t.h);
+    this.onChange();
   }
 
   clear(): void {
     this.coins = 0;
     this.items = [];
+    this.grid.clear();
+    this.caseTier = 0;
+    this.grid.width = CASE_TIERS[0].w;
+    this.grid.height = CASE_TIERS[0].h;
     this.onChange();
   }
 }

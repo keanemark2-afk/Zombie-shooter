@@ -186,6 +186,8 @@ export class Player {
   deathTime = 0;
   /** Seconds left of a grenade throw animation. */
   throwTime = 0;
+  private throwTotal = 0.5;
+  private throwReleased = true;
 
   private readonly knifeModel: Group;
   private readonly blender = new PoseBlender();
@@ -212,6 +214,8 @@ export class Player {
   constructor() {
     this.rig = buildRig(playerLook());
     this.pistols.set('pistol', buildPistol());
+    this.pistols.set('heavy', buildPistol('heavy'));
+    this.pistols.set('swift', buildPistol('swift'));
     this.pistols.set('magnum', buildMagnum());
     for (const model of this.pistols.values()) this.rig.handR.add(model.group);
     this.longGuns.set('pump', buildPumpShotgun());
@@ -270,6 +274,24 @@ export class Player {
   }
 
   /** Adds a gun to what you carry (bought from the Trader). */
+  /** A gun leaves the case (sold): you no longer carry it, and switch to another if it was in your hands. */
+  take(id: WeaponId): void {
+    if (!this.carried.delete(id)) return;
+    const gun = this.guns.find((g) => g.def.id === id);
+    if (gun) {
+      gun.reserve = 0;
+      gun.cancelReload();
+    }
+    if (this.guns[this.current]?.def.id === id) {
+      const next = this.guns.findIndex((g) => this.carried.has(g.def.id));
+      if (next >= 0) {
+        this.current = next;
+        this.switchTime = 0;
+        this.switchTo = -1;
+      }
+    }
+  }
+
   give(id: WeaponId, reserve = 0): void {
     this.carried.add(id);
     const g = this.guns.find((x) => x.def.id === id);
@@ -405,11 +427,32 @@ export class Player {
   /** Something hit us: brief stun and a shove (`push` metres or so). */
   hurt(from: Vector3, push = tuning.zombie.attackPush): void {
     this.healTime = 0;
+    this.throwTime = 0;
+    this.throwReleased = true;
     this.stunTime = tuning.player.hitStunTime;
     this.push.subVectors(this.position, from).setY(0).normalize().multiplyScalar(push * 5);
     this.blender.kick('spine', 7, 0, 0);
     this.blender.kick('head', 6, 0, 0);
     this.aiming = false;
+  }
+
+  /** Can a grenade be thrown right now? */
+  get canThrow(): boolean {
+    return !this.dead && !this.busy && !this.healing && this.stunTime <= 0 && this.throwTime <= 0 && !this.switching;
+  }
+
+  /** Starts the overarm throw; the grenade leaves the hand part-way through (the host is told). */
+  startThrow(seconds: number): void {
+    this.throwTotal = Math.max(0.1, seconds);
+    this.throwTime = this.throwTotal;
+    this.throwReleased = false;
+    this.aiming = false;
+    this.gun.cancelReload();
+  }
+
+  /** Where the throwing hand is. */
+  leftHandWorld(out: Vector3): Vector3 {
+    return this.rig.handL.getWorldPosition(out);
   }
 
   /** A parry knocks us back a little. */
@@ -467,6 +510,10 @@ export class Player {
       return;
     }
     this.throwTime = Math.max(0, this.throwTime - dt);
+    if (this.throwTime > 0 && !this.throwReleased && this.throwTime <= this.throwTotal * 0.6) {
+      this.throwReleased = true;
+      host.throwGrenade();
+    }
     if (this.healTime > 0) {
       this.healTime = Math.max(0, this.healTime - dt);
       if (this.healTime === 0) host.healFinished();
@@ -553,7 +600,7 @@ export class Player {
 
     const stunned = this.stunTime > 0;
     const turning = this.quickTurnTime > 0;
-    this.aiming = input.aim && !stunned && !turning && !this.switching && !this.healing;
+    this.aiming = input.aim && !stunned && !turning && !this.switching && !this.healing && this.throwTime <= 0;
     const moveLen = Math.min(1, Math.hypot(input.moveX, input.moveY));
     this.sprinting = input.sprint && !this.aiming && moveLen > 0.3 && !stunned;
 
@@ -668,7 +715,11 @@ export class Player {
     // The rocket launcher loads its next rocket by itself.
     if (gun.def.projectile && gun.ammo === 0 && !gun.reloading && gun.cooldown <= 0) gun.startReload(infinite);
     // The pistol slide is drawn from the gun's action (stays back when empty).
-    if (gun.def.id === 'pistol') this.pistols.get('pistol')!.slide.position.y = -0.075 + gun.action * 0.035;
+    if (gun.def.id === 'pistol' || gun.def.id === 'heavy' || gun.def.id === 'swift') {
+      const slide = this.pistols.get(gun.def.id)!.slide;
+      slide.userData.restY ??= slide.position.y;
+      slide.position.y = (slide.userData.restY as number) + gun.action * 0.035;
+    }
   }
 
   /** Called every rendered frame: smooth position, then place the gun and arms. */
@@ -969,7 +1020,7 @@ export class Player {
     }
     if (this.throwTime > 0) {
       // Overarm throw with the left hand.
-      const u = 1 - this.throwTime / 0.45;
+      const u = 1 - this.throwTime / this.throwTotal;
       const back = Math.min(1, u / 0.4);
       const fwd = Math.max(0, (u - 0.4) / 0.6);
       j.shoulderL = [-1.2 * back + 3.4 * fwd, 0, 0.2];

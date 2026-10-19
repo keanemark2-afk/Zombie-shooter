@@ -76,6 +76,10 @@ export function buildVillage(): Level {
   p.lanternPost(r, -9, -4, -0.8);
   p.lanternPost(r, 4, 19.5, -1.7);
 
+  // The Trader's stall, on the west side of the square (opens towards the well).
+  const stallYaw = -Math.PI / 2;
+  const stall = p.stall(r, -11.5, 1.5, stallYaw);
+
   batchStaticMeshes(root);
 
   // Zombies walk in through the gates from a few metres outside.
@@ -93,6 +97,7 @@ export function buildVillage(): Level {
     lamps: p.lamps,
     playerSpawn: { x: 0, z: 12, yaw: 0 },
     enemySpawns,
+    trader: { x: stall.trader.x, z: stall.trader.z, yaw: stallYaw, customerX: stall.customer.x, customerZ: stall.customer.z },
     // Beyond the gates is open country; the fight stays in and just outside the square.
     bounds: { minX: -34, maxX: 34, minZ: -34, maxZ: 34 },
   };

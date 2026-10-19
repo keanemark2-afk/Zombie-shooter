@@ -2,8 +2,8 @@
 // zombie reacts depending on where it was hit. Kept free of graphics so the
 // rules can be unit-tested.
 
-export type Zone = 'head' | 'torso' | 'armL' | 'armR' | 'legL' | 'legR';
-export type ZoneGroup = 'head' | 'torso' | 'arm' | 'leg';
+export type Zone = 'head' | 'torso' | 'armL' | 'armR' | 'legL' | 'legR' | 'parasite' | 'shield';
+export type ZoneGroup = 'head' | 'torso' | 'arm' | 'leg' | 'parasite' | 'shield';
 /** Arms and legs: the parts that can be torn off. */
 export type LimbZone = 'armL' | 'armR' | 'legL' | 'legR';
 /** Where on a limb it was hit: the upper part (tears off the whole limb) or the lower part. */
@@ -29,6 +29,7 @@ export type Reaction =
   | 'armFlinch' // arm knocked back, drops what it was holding
   | 'knockdown' // blown off its feet onto its back (a close shotgun blast)
   | 'legless' // lost a leg: falls and crawls after you
+  | 'mutate' // its head is gone and a parasite bursts out of the neck
   | 'death';
 
 export interface WeaponHit {
@@ -46,10 +47,16 @@ export interface TargetState {
   windingUpThrow: boolean;
   /** Dragging itself along the ground after losing a leg (reacts like a downed zombie). */
   crawling?: boolean;
+  /** A big elite: shrugs off everything except headshots and explosions. */
+  heavy?: boolean;
+  /** Has a parasite where its head was: `health` is then the parasite's. */
+  parasite?: boolean;
+  /** A head blown off may let a parasite out (not elites, not ones that already have one). */
+  canMutate?: boolean;
 }
 
 export interface DamageRules {
-  damage: { head: number; torso: number; arm: number; leg: number };
+  damage: { head: number; torso: number; arm: number; leg: number; parasite: number };
   reactions: {
     classicHeadStagger: boolean;
     remakeHeadStaggerChance: number;
@@ -60,6 +67,7 @@ export interface DamageRules {
     knockdownThreshold: number;
   };
   gore: { headPopDamage: number };
+  parasite: { bodyScale: number };
 }
 
 export interface HitResult {
@@ -86,6 +94,8 @@ export interface HitResult {
   crit: boolean;
   /** Arms and legs torn off by this shot. */
   severed: Array<{ zone: LimbZone; segment: LimbSegment }>;
+  /** A parasite bursts out where the head was (the zombie is not dead). */
+  mutate: boolean;
 }
 
 /** One bullet or pellet that hit a zombie. `damage` is before body-part multipliers. */
@@ -105,6 +115,12 @@ export interface PelletHit {
 export interface ShotExtras {
   /** The gun's critical headshot chance at a fully tight reticle (half of it when wide). */
   critChance?: number;
+  /** Chance a head that is blown off lets a parasite out (rises with the wave number). */
+  mutateChance?: number;
+  /** A hit this many times the zombie's remaining health is overkill: no parasite. */
+  overkillRatio?: number;
+  /** An explosion: even a heavy elite is thrown about by it. */
+  explosive?: boolean;
 }
 
 /**
@@ -141,7 +157,12 @@ export function resolveShot(
   let damage = 0;
   let knockback = 0;
   for (const p of pellets) {
-    const d = p.damage * rules.damage[zoneGroup(p.zone)];
+    // The shield is not part of the body: it never takes damage this way.
+    const group = zoneGroup(p.zone);
+    const mult = group === 'shield' ? 0 : rules.damage[group];
+    // Once the parasite is out, the body barely matters: the parasite is the weak point.
+    const scale = target.parasite && group !== 'parasite' ? rules.parasite.bodyScale : 1;
+    const d = p.damage * mult * scale;
     byZone.set(p.zone, (byZone.get(p.zone) ?? 0) + d);
     damage += d;
     knockback += p.knockback;
@@ -163,7 +184,8 @@ export function resolveShot(
   let headPop = false;
   let crit = false;
   const severed: HitResult['severed'] = [];
-  if (!target.invincible) {
+  // Big elites can't have their heads burst or their limbs torn off.
+  if (!target.invincible && !target.heavy) {
     if (byZone.has('head')) {
       if ((byZone.get('head') ?? 0) >= rules.gore.headPopDamage) headPop = true;
       for (const p of pellets) {
@@ -206,7 +228,28 @@ export function resolveShot(
     headPop,
     crit,
     severed,
+    mutate: false,
   };
+
+  // A head blown off (without overkill) sometimes lets a parasite out instead of dying.
+  if (
+    killed &&
+    !crit &&
+    byZone.has('head') &&
+    target.canMutate &&
+    !target.parasite &&
+    (extras.mutateChance ?? 0) > 0 &&
+    damage <= target.health * (extras.overkillRatio ?? 2.2) &&
+    random() < (extras.mutateChance ?? 0)
+  ) {
+    result.killed = false;
+    result.mutate = true;
+    result.reaction = 'mutate';
+    result.healthAfter = target.health;
+    result.overkill = 0;
+    result.dropWeapon = target.holdingWeapon;
+    return result;
+  }
 
   if (killed) {
     result.reaction = 'death';
@@ -229,7 +272,8 @@ export function resolveShot(
 
   const r = rules.reactions;
   const downed = target.downed || !!target.crawling;
-  if (!downed && knockback >= r.knockdownThreshold) {
+  const shrugsOff = !!target.heavy && !extras.explosive;
+  if (!downed && !shrugsOff && knockback >= r.knockdownThreshold) {
     result.reaction = 'knockdown';
     result.knockback = knockback;
     result.dropWeapon = target.holdingWeapon;
@@ -268,6 +312,12 @@ export function resolveShot(
       result.reaction = knockback >= r.knockbackThreshold ? 'knockback' : 'torsoFlinch';
       break;
     }
+  }
+  // A heavy elite is only staggered by headshots (and thrown by explosions).
+  if (shrugsOff && result.reaction !== 'headStagger' && result.reaction !== 'none') {
+    result.reaction = 'none';
+    result.knockback = 0;
+    result.spin = false;
   }
   // Any hit on an arm knocks loose what it holds and spoils a throw.
   if (anyArm) {

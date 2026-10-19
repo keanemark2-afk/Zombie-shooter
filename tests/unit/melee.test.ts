@@ -19,6 +19,11 @@ describe('melee follow-ups', () => {
   it('a zombie that is not stunned gets nothing', () => {
     expect(meleeMoveFor(null, false)).toBeNull();
   });
+
+  it('a shield held up in front of you can be kicked apart, but not from behind', () => {
+    expect(meleeMoveFor('shield', false)).toBe('frontKick');
+    expect(meleeMoveFor('shield', true)).toBeNull();
+  });
 });
 
 describe('picking the melee target', () => {

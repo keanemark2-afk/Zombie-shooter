@@ -53,6 +53,13 @@ export class Hud {
   private stripKey = '';
   private markerTimer = 0;
   private hurtLevel = 0;
+  private readonly traderMarker: HTMLDivElement;
+  private readonly traderKey: HTMLSpanElement;
+  private readonly traderLabel: HTMLSpanElement;
+  private readonly blind: HTMLDivElement;
+  /** 0..1: how blinded you are by a flash (fades by itself). */
+  private blindLevel = 0;
+  private blindFade = 1;
 
   constructor() {
     this.root = document.createElement('div');
@@ -60,9 +67,11 @@ export class Hud {
     this.root.innerHTML = `
       <div class="danger-vignette"></div>
       <div class="hurt-flash"></div>
+      <div class="blind-flash"></div>
       <div class="hit-marker"><i></i><i></i></div>
       <div class="scope" hidden><div class="scope-cross"><i class="h"></i><i class="v"></i><b></b></div></div>
       <div class="melee-prompt" hidden><span class="key">F</span><span class="label">Kick</span></div>
+      <div class="trader-marker" hidden><span class="key">E</span><span class="label">Trade</span></div>
       <div class="grab-prompt" hidden>
         <div class="grab-title">GRABBED!</div>
         <div class="grab-text"></div>
@@ -94,6 +103,7 @@ export class Hud {
     this.root.insertBefore(this.crosshair.svg, this.root.querySelector('.hit-marker'));
     this.marker = q('.hit-marker');
     this.hurt = q('.hurt-flash');
+    this.blind = q('.blind-flash');
     this.ammoLoaded = q('.loaded');
     this.ammoSpare = q('.spare');
     this.reloadBar = q('.reload-bar');
@@ -105,6 +115,9 @@ export class Hud {
     this.prompt = q('.melee-prompt');
     this.promptKey = q('.melee-prompt .key');
     this.promptLabel = q('.melee-prompt .label');
+    this.traderMarker = q('.trader-marker');
+    this.traderKey = q('.trader-marker .key');
+    this.traderLabel = q('.trader-marker .label');
     this.grab = q('.grab-prompt');
     this.grabFill = q('.grab-fill');
     this.grabTime = q('.grab-time');
@@ -176,6 +189,20 @@ export class Hud {
     if (this.promptLabel.textContent !== label) this.promptLabel.textContent = label;
   }
 
+  /**
+   * The Trader's marker. `at` is where on screen (already kept inside the screen); `near` shows
+   * the key to press, otherwise it just says how far away the stall is.
+   */
+  setTraderMarker(at: { x: number; y: number } | null, key: string, label: string, near: boolean): void {
+    this.traderMarker.hidden = at === null;
+    if (!at) return;
+    this.traderMarker.style.left = `${at.x}px`;
+    this.traderMarker.style.top = `${at.y}px`;
+    this.traderMarker.classList.toggle('near', near);
+    if (this.traderKey.textContent !== key) this.traderKey.textContent = key;
+    if (this.traderLabel.textContent !== label) this.traderLabel.textContent = label;
+  }
+
   /** The break-free bar while a zombie has hold of you (null hides it). */
   setGrab(state: { progress: number; timeLeft: number; mash: string; knife: string; canKnife: boolean } | null): void {
     this.grab.hidden = state === null;
@@ -220,6 +247,12 @@ export class Hud {
 
   hurtFlash(): void {
     this.hurtLevel = 1;
+  }
+
+  /** Dazzles the screen white for `seconds` (a flash grenade went off near you). */
+  whiteout(seconds: number): void {
+    this.blindLevel = 1;
+    this.blindFade = 1 / Math.max(0.1, seconds);
   }
 
   /** The box at the top of the screen (wave counter, score...). Plain HTML; null hides it. */
@@ -329,5 +362,7 @@ export class Hud {
       if (this.bannerTimer <= 0) this.banner.classList.remove('show');
     }
     this.hurt.style.opacity = String(this.hurtLevel * 0.85);
+    this.blindLevel = Math.max(0, this.blindLevel - dt * this.blindFade);
+    this.blind.style.opacity = this.blindLevel > 0 ? String(Math.min(1, this.blindLevel * 1.6)) : '0';
   }
 }

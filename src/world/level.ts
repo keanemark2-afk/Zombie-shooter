@@ -20,6 +20,8 @@ export interface Level {
   readonly playerSpawn: SpawnPoint;
   /** Where enemies appear. */
   readonly enemySpawns: SpawnPoint[];
+  /** Where the Trader stands and where a customer stands (if this level has a stall). */
+  readonly trader?: { x: number; z: number; yaw: number; customerX: number; customerZ: number };
   /** The player can't walk past this (if set). */
   readonly bounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
 }

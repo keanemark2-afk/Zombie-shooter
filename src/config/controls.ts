@@ -21,7 +21,7 @@ export const PAD = {
   right: 15,
 } as const;
 
-export type Action = 'aim' | 'fire' | 'reload' | 'sprint' | 'melee' | 'knife' | 'pause' | 'nextWeapon' | 'prevWeapon' | 'heal' | 'grenade' | 'nextGrenade' | 'caseOpen' | 'ready';
+export type Action = 'aim' | 'fire' | 'reload' | 'sprint' | 'melee' | 'knife' | 'pause' | 'nextWeapon' | 'prevWeapon' | 'heal' | 'grenade' | 'nextGrenade' | 'caseOpen' | 'ready' | 'interact';
 
 export interface Binding {
   keys: string[];
@@ -44,10 +44,11 @@ export const bindings: Record<Action, Binding> = {
   nextGrenade: { keys: ['KeyB'], pad: PAD.up },
   caseOpen: { keys: ['Tab'], pad: PAD.select },
   ready: { keys: ['Enter'], pad: PAD.south },
+  interact: { keys: ['KeyE'], pad: PAD.south },
 };
 
-/** Keys 1-8 pick a weapon quick-slot directly. */
-export const slotKeys = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8'];
+/** Keys 1-9 pick a weapon quick-slot directly. */
+export const slotKeys = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'];
 
 export const moveKeys = {
   forward: ['KeyW', 'ArrowUp'],
