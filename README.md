@@ -4,7 +4,7 @@ An over-the-shoulder zombie arena shooter that plays like the classic survival-h
 action games: tight pistol gunplay, body-part hit reactions, kicks and suplexes,
 a trader between waves, and a score-attack mode. No story, just the fighting.
 
-**Status:** Phase 2 of 7 (seven weapons, kicks and suplexes, the knife and parrying, grabs, bursting heads and torn-off limbs). See `PROGRESS.md`.
+**Status:** Phase 3 of 7 (Survival waves, zombies that take turns, health and herbs, drops, plus everything from earlier phases). See `PROGRESS.md`.
 
 ## How to play (Windows)
 
@@ -23,6 +23,7 @@ If Node.js is missing, the launcher tells you exactly what to install.
 | Shoot (while aiming) | Left mouse | R2 | RT |
 | Reload | R | Square | X |
 | Switch weapon | 1-7 / mouse wheel | D-pad left / right | D-pad left / right |
+| Heal (herb or spray) | H | Triangle | Y |
 | Kick / suplex / finish (when prompted) | F | Cross | A |
 | Knife slash / parry (hold to block) | V | R1 | RB |
 | Break free of a grab | Mash F (or V to stab) | Mash Cross (or R1) | Mash A (or RB) |

@@ -61,7 +61,8 @@ export const tuning = {
 
   // Shared weapon settings.
   weapons: {
-    infiniteAmmo: true, // Spare ammo never runs out (handy for testing).
+    infiniteAmmo: true, // Shooting range only: spare ammo never runs out, so you can test guns freely.
+    cheatInfiniteAmmo: false, // Cheat for Survival and Score Attack: spare ammo never runs out.
     switchTime: 0.45, // How long swapping to another weapon takes. [0.1 to 2]
     startWeapon: 'pistol', // The weapon in your hands when a round starts. [options: pistol, pump, drum, smg, rifle, magnum, rocket]
   },
@@ -311,7 +312,8 @@ export const tuning = {
     gibRadius: 1.8, // Zombies this close to the centre are blown to pieces. [0 to 6]
     limbRadius: 4, // Zombies this close may lose arms and legs. [0 to 10]
     push: 3.2, // How hard a blast throws zombies off their feet. [0 to 10]
-    playerPush: 2.2, // How hard a blast shoves you if you're too close (no health until Phase 3). [0 to 8]
+    playerPush: 2.2, // How hard a blast shoves you if you're too close. [0 to 8]
+    playerDamage: 60, // Health you lose at the very centre of a blast (less further out). [0 to 300]
     shake: 0.9, // Camera shake from a nearby blast. [0 to 2]
     hitStop: 0.07, // Tiny freeze when something blows up. [0 to 0.3]
     rocketSpeed: 38, // How fast a rocket flies, in metres per second. [5 to 150]
@@ -412,12 +414,145 @@ export const tuning = {
     attackRange: 1.35, // How close it must be to swing at you. [0.5 to 3]
     attackWindup: 0.75, // Warning time between raising its arms and swinging. [0.1 to 2]
     attackRecover: 0.9, // Pause after a swing before it moves again. [0 to 3]
-    attackPush: 1.1, // How far a hit shoves you back (player health arrives in Phase 3). [0 to 4]
+    attackPush: 1.1, // How far a hit shoves you back. [0 to 4]
+    swingDamage: 18, // Health you lose when a swing hits you. [0 to 200]
+    biteDamage: 28, // Health you lose when a grabbing zombie bites you. [0 to 200]
+    clawDamage: 10, // Health you lose when a crawling zombie claws you. [0 to 200]
     weaponChance: 0.45, // Chance a zombie carries a farm tool. Shoot its arm to make it drop it. [0 to 1]
     corpseTime: 6, // How long bodies stay before sinking away. [0.5 to 60]
     groanInterval: 5, // Average time between groans. [1 to 30]
     crawlSpeed: 0.55, // Speed of a zombie dragging itself along after losing a leg. [0.1 to 3]
     crawlReach: 1.1, // How close a crawling zombie's hands must be to claw at you. [0.3 to 2.5]
+  },
+
+  // Your health and healing.
+  health: {
+    max: 100, // Your starting health. Yellow herbs raise it. [20 to 300]
+    dangerLevel: 0.3, // Below this fraction of your health the screen pulses red and your heart pounds. [0 to 1]
+    healTime: 1.1, // How long using a healing item takes. Being hit interrupts it. [0.2 to 4]
+    graceTime: 0.7, // Protection from further hits just after you are hit. [0 to 3]
+    sprayRaisesMax: 0, // How much a first-aid spray also raises your maximum health. [0 to 50]
+    deathScreenDelay: 2.2, // Seconds after you die before the "you died" screen appears. [0 to 6]
+  },
+
+  // How the horde behaves as a group.
+  ai: {
+    sightRange: 26, // How far away a zombie can notice you when you are in front of it, in metres. [2 to 80]
+    sightAngle: 75, // How wide its view is, in degrees either side of where it faces. [10 to 180]
+    hearRange: 9, // Zombies this close notice you even from behind. [0 to 40]
+    gunshotRange: 28, // A gunshot alerts every zombie this close. [0 to 80]
+    alertRadius: 14, // When one zombie spots you it alerts every zombie this close to it. [0 to 50]
+    spotTime: 0.9, // How long a zombie stops to roar when it first spots you. [0 to 3]
+    maxAttackers: 3, // How many zombies can attack you at the same time. The rest wait their turn. [1 to 12]
+    ringRadius: 3.4, // How far from you the waiting zombies hold their circle, in metres. [1.8 to 8]
+    tokenTimeout: 6, // If an attacker hasn't hit you after this long it loses its turn. [1 to 20]
+    wanderSpeed: 0.5, // How fast a zombie that hasn't noticed you ambles about. [0 to 2]
+    circleSpeed: 0.8, // How fast waiting zombies shuffle round you. [0.2 to 3]
+  },
+
+  // Waves of zombies in Survival.
+  waves: {
+    startDelay: 4, // Seconds of calm before the first wave. [0 to 30]
+    firstWaveSize: 6, // How many zombies come in the first wave. [1 to 40]
+    growthPerWave: 3, // How many more zombies each wave brings. [0 to 20]
+    maxAliveStart: 7, // Most zombies alive at once in the first wave. [1 to 40]
+    maxAliveGrowth: 0.8, // How many more can be alive at once each wave. [0 to 5]
+    maxAliveCap: 24, // The most that are ever alive at once. [4 to 60]
+    spawnInterval: 2.2, // Seconds between zombies walking in during the first wave. [0.2 to 10]
+    spawnSpeedUp: 0.1, // How much faster they arrive each wave (seconds off the interval). [0 to 1]
+    minSpawnInterval: 0.6, // The quickest they ever arrive. [0.1 to 5]
+    breakTime: 60, // Seconds between waves (the Trader's stall is open). Press Ready to skip. [5 to 300]
+    eliteEveryKills: 50, // A brute or chainsaw zombie comes after this many kills. [5 to 500]
+    bonusPerWave: 500, // Coins for clearing a wave, times the wave number. [0 to 5000]
+  },
+
+  // What zombies, crates and barrels drop.
+  drops: {
+    chance: 0.62, // Chance a killed zombie drops something. [0 to 1]
+    crateChance: 0.85, // Chance a broken crate drops something. [0 to 1]
+    lifetime: 30, // How long a drop stays before it fades away, in seconds. [5 to 120]
+    pickupRadius: 1.3, // How close you must get to pick something up, in metres. [0.5 to 4]
+    magnetRadius: 3.2, // Drops this close drift towards you. [0 to 8]
+    ammoWeight: 1, // How often ammo drops, compared with the other things. [0 to 10]
+    lowAmmoBoost: 4, // How much more likely ammo is for a gun you are running low on. [0 to 20]
+    herbWeight: 0.7, // How often herbs and sprays drop, compared with the other things. [0 to 10]
+    lowHealingBoost: 5, // How much more likely herbs are when you carry few healing items. [0 to 20]
+    coinWeight: 1.1, // How often coins drop. [0 to 10]
+    treasureWeight: 0.14, // How often treasure (gems, idols) drops. [0 to 5]
+    grenadeWeight: 0.12, // How often grenades drop. [0 to 5]
+    coinsMin: 40, // Smallest pile of coins. [1 to 1000]
+    coinsMax: 160, // Largest pile of coins. [1 to 5000]
+    ammoPerPickup: {
+      pistol: 12, // Rounds in a Kestrel 9 ammo drop. [1 to 200]
+      pump: 6, // Shells in a Bramble 12 ammo drop. [1 to 200]
+      drum: 8, // Shells in a Thresher ammo drop. [1 to 200]
+      smg: 40, // Rounds in a Magpie ammo drop. [1 to 200]
+      rifle: 5, // Rounds in a Heron ammo drop. [1 to 200]
+      magnum: 6, // Rounds in an Oxbow ammo drop. [1 to 200]
+      rocket: 1, // Rockets in a Haymaker ammo drop. [1 to 200]
+      heavy: 8, // Rounds in a heavy pistol ammo drop. [1 to 200]
+      swift: 20, // Rounds in a fast pistol ammo drop. [1 to 200]
+    },
+  },
+
+  // How each type of enemy differs from the basic Shambler (multipliers on the "zombie" numbers above).
+  enemyTypes: {
+    shambler: {
+      health: 1, // Health compared with the basic zombie. [0.1 to 30]
+      speed: 1, // Walking and running speed compared with the basic zombie. [0.2 to 3]
+      damage: 1, // Damage it does to you compared with the basic zombie. [0 to 20]
+      points: 100, // Score Attack points for killing one. [0 to 10000]
+      coins: 1, // How many coins it drops compared with the usual pile. [0 to 20]
+      size: 1, // How big its body is. [0.5 to 2]
+    },
+    armed: {
+      health: 1.15, // Health compared with the basic zombie. [0.1 to 30]
+      speed: 1, // Walking and running speed compared with the basic zombie. [0.2 to 3]
+      damage: 1.35, // Damage it does to you compared with the basic zombie. [0 to 20]
+      points: 150, // Score Attack points for killing one. [0 to 10000]
+      coins: 1.3, // How many coins it drops compared with the usual pile. [0 to 20]
+      size: 1, // How big its body is. [0.5 to 2]
+    },
+    runner: {
+      health: 0.8, // Health compared with the basic zombie. [0.1 to 30]
+      speed: 1.15, // Walking and running speed compared with the basic zombie. [0.2 to 3]
+      damage: 0.9, // Damage it does to you compared with the basic zombie. [0 to 20]
+      points: 150, // Score Attack points for killing one. [0 to 10000]
+      coins: 1.2, // How many coins it drops compared with the usual pile. [0 to 20]
+      size: 0.96, // How big its body is. [0.5 to 2]
+    },
+    shield: {
+      health: 1.3, // Health compared with the basic zombie. [0.1 to 30]
+      speed: 0.9, // Walking and running speed compared with the basic zombie. [0.2 to 3]
+      damage: 1.1, // Damage it does to you compared with the basic zombie. [0 to 20]
+      points: 250, // Score Attack points for killing one. [0 to 10000]
+      coins: 1.8, // How many coins it drops compared with the usual pile. [0 to 20]
+      size: 1.04, // How big its body is. [0.5 to 2]
+    },
+    dynamite: {
+      health: 0.9, // Health compared with the basic zombie. [0.1 to 30]
+      speed: 0.95, // Walking and running speed compared with the basic zombie. [0.2 to 3]
+      damage: 1, // Damage it does to you compared with the basic zombie. [0 to 20]
+      points: 250, // Score Attack points for killing one. [0 to 10000]
+      coins: 1.8, // How many coins it drops compared with the usual pile. [0 to 20]
+      size: 1, // How big its body is. [0.5 to 2]
+    },
+    brute: {
+      health: 9, // Health compared with the basic zombie. [0.1 to 30]
+      speed: 0.85, // Walking and running speed compared with the basic zombie. [0.2 to 3]
+      damage: 2.6, // Damage it does to you compared with the basic zombie. [0 to 20]
+      points: 1200, // Score Attack points for killing one. [0 to 10000]
+      coins: 8, // How many coins it drops compared with the usual pile. [0 to 20]
+      size: 1.4, // How big its body is. [0.5 to 2]
+    },
+    chainsaw: {
+      health: 6, // Health compared with the basic zombie. [0.1 to 30]
+      speed: 1, // Walking and running speed compared with the basic zombie. [0.2 to 3]
+      damage: 4, // Damage it does to you compared with the basic zombie. [0 to 20]
+      points: 1500, // Score Attack points for killing one. [0 to 10000]
+      coins: 10, // How many coins it drops compared with the usual pile. [0 to 20]
+      size: 1.12, // How big its body is. [0.5 to 2]
+    },
   },
 
   // The shooting range test area.
@@ -428,12 +563,6 @@ export const tuning = {
     dummyRespawnDelay: 2, // Seconds before a new dummy appears after one dies. [0 to 10]
     dummyInvincible: false, // Tick to make the dummy unkillable, for practising reactions.
     dummyHoldsWeapon: true, // The dummy carries a farm tool you can shoot out of its hand.
-  },
-
-  // The village zombie test.
-  village: {
-    zombieCount: 1, // How many zombies roam the village at once. [1 to 8]
-    respawnDelay: 3, // Seconds before a new zombie walks in after one dies. [0 to 20]
   },
 
   // Hit feedback: the "juice" that makes shooting feel good.

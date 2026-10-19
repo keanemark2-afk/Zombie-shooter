@@ -11,9 +11,9 @@ import {
   type GoreLevel,
 } from '../config/settings';
 import { Crosshair, crosshairIcon } from './crosshair';
-import type { LevelId } from '../world/level';
+import type { GameMode } from '../core/modes';
 
-export type MenuChoice = LevelId | 'resume';
+export type MenuChoice = GameMode | 'resume';
 
 /** The start / pause screen with mode buttons and the full controls list. */
 export class Menu {
@@ -34,12 +34,12 @@ export class Menu {
     this.root.innerHTML = `
       <div class="menu-panel">
         <h1>DEAD ACRE</h1>
-        <div class="menu-sub">Phase 2 &middot; Kicks, knife &amp; gore &middot; seven weapons</div>
+        <div class="menu-sub">Phase 3 &middot; The horde &middot; waves, health &amp; drops</div>
         <div class="menu-main">
           <div class="menu-buttons">
             <button type="button" data-choice="resume" class="resume">Resume</button>
+            <button type="button" data-choice="survival">Survival</button>
             <button type="button" data-choice="range">Shooting range</button>
-            <button type="button" data-choice="village">Village</button>
             <button type="button" data-action="settings">Settings</button>
           </div>
           <div class="menu-note">Click a button to play. The mouse gets captured for aiming &mdash; press <b>Esc</b> to get it back.</div>
@@ -210,6 +210,7 @@ export class Menu {
       ['Shoot (while aiming)', 'Left mouse', pad(bindings.fire.pad!)],
       ['Reload', 'R', pad(bindings.reload.pad!)],
       ['Switch weapon', '1 to 7 or mouse wheel', `${pad(bindings.prevWeapon.pad!)} / ${pad(bindings.nextWeapon.pad!)}`],
+      ['Heal (uses a herb or spray)', 'H', pad(bindings.heal.pad!)],
       ['Kick / suplex / finish (when prompted)', 'F', pad(bindings.melee.pad!)],
       ['Knife slash / parry (just before a hit)', 'V (hold to block)', `${pad(bindings.knife.pad!)} (hold to block)`],
       ['Break free of a grab', 'Mash F, or V to stab', `Mash ${pad(bindings.melee.pad!)}, or ${pad(bindings.knife.pad!)}`],
@@ -225,7 +226,7 @@ export class Menu {
       rows.map(([a, k, p]) => `<tr><td>${a}</td><td>${k}</td><td>${p}</td></tr>`).join('') +
       `</table>` +
       (this.padType
-        ? `<div class="menu-note">Controller: press ${pad(PAD.south)} for the shooting range or ${pad(PAD.north)} for the village.</div>`
+        ? `<div class="menu-note">Controller: press ${pad(PAD.south)} or ${pad(PAD.north)} for Survival, or ${pad(PAD.west)} for the shooting range.</div>`
         : '');
   }
 }

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { frames, hold, installFakePad, padButton, padTap, shootAt, state, waitForDummyState, waitForFrames, watchErrors } from './helpers';
+import { fastMode, frames, hold, installFakePad, padButton, padTap, shootAt, state, waitForDummyState, waitForFrames, watchErrors } from './helpers';
 
 // Loads the game in a real (hidden) browser and plays it with simulated
 // keyboard, mouse and gamepad input. Any error in the browser fails the test.
@@ -13,6 +13,8 @@ test('shooting range: aiming, reactions, reload and respawn', async ({ page }) =
   await page.goto('/?autotest');
   await page.waitForFunction(() => window.__deadAcre?.ready === true, null, { timeout: 60_000 });
   await expect(page.locator('.menu')).toBeVisible();
+  // No lucky critical headshots, so the reactions below are predictable.
+  await page.evaluate(() => (window.__deadAcre!.tuning.pistol.critChance = 0));
 
   const stats = await page.evaluate(() => window.__deadAcre!.screenStats());
   expect(stats.mean, 'screen is too dark - is anything rendering?').toBeGreaterThan(0.03);
@@ -157,9 +159,9 @@ test('village, gamepad, menu and tuning panel for ~30 seconds', async ({ page, c
   await expect(page.locator('.menu-controls')).toContainText('PlayStation controller');
   await expect(page.locator('.menu-controls')).toContainText('R2');
 
-  // Triangle on the pad starts the village.
+  // Triangle on the pad starts Survival.
   await padTap(page, 3);
-  await expect.poll(async () => (await state(page)).mode).toBe('village');
+  await expect.poll(async () => (await state(page)).mode).toBe('survival');
   expect((await state(page)).padType).toBe('playstation');
 
   // Aim with L2 and fire with R2.
@@ -171,7 +173,8 @@ test('village, gamepad, menu and tuning panel for ~30 seconds', async ({ page, c
   expect((await state(page)).stats.shots).toBe(1);
   expect((await state(page)).lastDevice).toBe('gamepad');
 
-  // D-pad right swaps to the next weapon.
+  // D-pad right swaps to the next weapon (Survival starts with just the pistol, so hand over a shotgun).
+  await page.evaluate(() => (window as unknown as { __game: { player: { give: (id: string, n: number) => void } } }).__game.player.give('pump', 10));
   await padTap(page, 15);
   await expect.poll(async () => (await state(page)).weapon, { timeout: 60_000 }).toBe('pump');
 
@@ -210,7 +213,7 @@ test('village, gamepad, menu and tuning panel for ~30 seconds', async ({ page, c
   await expect(panel).toBeHidden();
 
   // More zombies, then keep playing with the keyboard and mouse until ~30 s.
-  await page.evaluate(() => (window.__deadAcre!.tuning.village.zombieCount = 3));
+  await page.evaluate(() => (window as unknown as { __game: { health: { reset: (n: number) => void } } }).__game.health.reset(100000));
   const moves = [['KeyW'], ['KeyD'], ['KeyW', 'ShiftLeft'], ['KeyA'], ['KeyS']];
   let i = 0;
   while ((Date.now() - started) / 1000 < TOTAL_SECONDS) {
@@ -218,7 +221,7 @@ test('village, gamepad, menu and tuning panel for ~30 seconds', async ({ page, c
     if (i % 2 === 0) await shootAt(page, 'torso');
     i++;
   }
-  expect((await state(page)).zombies.length).toBeGreaterThan(0);
+  expect((await state(page)).wave).toBeGreaterThanOrEqual(1);
   await page.screenshot({ path: 'test-results/smoke-village.png' });
 
   await expect(page.locator('.error-overlay')).toHaveCount(0);

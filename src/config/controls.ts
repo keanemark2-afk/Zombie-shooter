@@ -21,7 +21,7 @@ export const PAD = {
   right: 15,
 } as const;
 
-export type Action = 'aim' | 'fire' | 'reload' | 'sprint' | 'melee' | 'knife' | 'pause' | 'nextWeapon' | 'prevWeapon';
+export type Action = 'aim' | 'fire' | 'reload' | 'sprint' | 'melee' | 'knife' | 'pause' | 'nextWeapon' | 'prevWeapon' | 'heal' | 'grenade' | 'nextGrenade' | 'caseOpen' | 'ready';
 
 export interface Binding {
   keys: string[];
@@ -39,6 +39,11 @@ export const bindings: Record<Action, Binding> = {
   pause: { keys: [], pad: PAD.start },
   nextWeapon: { keys: [], pad: PAD.right },
   prevWeapon: { keys: [], pad: PAD.left },
+  heal: { keys: ['KeyH'], pad: PAD.north },
+  grenade: { keys: ['KeyG'], pad: PAD.l1 },
+  nextGrenade: { keys: ['KeyB'], pad: PAD.up },
+  caseOpen: { keys: ['Tab'], pad: PAD.select },
+  ready: { keys: ['Enter'], pad: PAD.south },
 };
 
 /** Keys 1-8 pick a weapon quick-slot directly. */

@@ -530,6 +530,124 @@ export class Sfx implements ZombieVoice {
   }
 
   // ---------------------------------------------------------------------------
+  // Pickups, healing and the mood of the fight
+
+  /** A pickup chime that suits what was picked up. */
+  pickup(kind: 'ammo' | 'herb' | 'spray' | 'coins' | 'treasure' | 'grenade' | 'orb'): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, 0.06);
+    switch (kind) {
+      case 'ammo':
+      case 'grenade':
+        this.burst(out, 0.03, { filter: 'bandpass', freq: 2200, q: 3, gain: 0.35 });
+        this.burst(out, 0.04, { filter: 'bandpass', freq: 1500, q: 3, gain: 0.4, delay: 0.06 });
+        break;
+      case 'herb':
+        this.burst(out, 0.18, { filter: 'bandpass', freq: 2800, q: 0.6, gain: 0.22, attack: 0.04 });
+        this.tone(out, 0.14, { freq: 520, freqEnd: 700, gain: 0.12, delay: 0.05 });
+        break;
+      case 'spray':
+        this.burst(out, 0.2, { filter: 'highpass', freq: 5000, gain: 0.18, attack: 0.03 });
+        this.tone(out, 0.12, { freq: 880, gain: 0.1, delay: 0.1 });
+        break;
+      case 'coins':
+        this.tone(out, 0.12, { freq: 1850, gain: 0.13 });
+        this.tone(out, 0.2, { freq: 2480, gain: 0.12, delay: 0.07 });
+        this.burst(out, 0.02, { filter: 'highpass', freq: 6000, gain: 0.12 });
+        break;
+      case 'treasure':
+        for (let i = 0; i < 4; i++) this.tone(out, 0.4, { freq: 1400 + i * 420, gain: 0.1, delay: i * 0.07 });
+        break;
+      case 'orb':
+        this.tone(out, 0.5, { freq: 660, freqEnd: 1320, gain: 0.2 });
+        this.tone(out, 0.5, { freq: 990, freqEnd: 1980, gain: 0.12, delay: 0.05 });
+        break;
+    }
+  }
+
+  /** Using a healing item. */
+  heal(spray: boolean): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, 0.1);
+    if (spray) {
+      this.burst(out, 0.5, { filter: 'highpass', freq: 4500, gain: 0.25, attack: 0.04 });
+      this.burst(out, 0.4, { filter: 'bandpass', freq: 7000, q: 1, gain: 0.12, delay: 0.1 });
+    } else {
+      this.burst(out, 0.4, { filter: 'bandpass', freq: 2600, q: 0.5, gain: 0.2, attack: 0.1 });
+      this.burst(out, 0.3, { filter: 'lowpass', freq: 500, gain: 0.2, delay: 0.1 });
+    }
+  }
+
+  /** The "done" chime when the health comes back. */
+  healed(): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, 0.2);
+    this.tone(out, 0.5, { freq: 523, gain: 0.12 });
+    this.tone(out, 0.5, { freq: 659, gain: 0.1, delay: 0.09 });
+    this.tone(out, 0.7, { freq: 784, gain: 0.1, delay: 0.18 });
+  }
+
+  /** A heartbeat (lub-dub). `strength` 0..1. */
+  heartbeat(strength: number): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, 0.02);
+    this.tone(out, 0.16, { freq: 62, freqEnd: 40, gain: 0.55 * strength + 0.2, attack: 0.004 });
+    this.tone(out, 0.14, { freq: 55, freqEnd: 36, gain: 0.4 * strength + 0.15, attack: 0.004, delay: 0.17 });
+  }
+
+  /** A wave beginning: a low horn and a rumble. */
+  waveStart(): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, 0.5);
+    this.tone(out, 1.4, { type: 'sawtooth', freq: 72, freqEnd: 64, gain: 0.22, attack: 0.25 });
+    this.tone(out, 1.4, { type: 'sawtooth', freq: 108, freqEnd: 96, gain: 0.12, attack: 0.3 });
+    this.burst(out, 1.4, { filter: 'lowpass', freq: 220, gain: 0.3, attack: 0.3 });
+  }
+
+  /** A wave cleared: a short rising phrase. */
+  waveClear(): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, 0.35);
+    [392, 494, 587, 784].forEach((f, i) => this.tone(out, 0.6, { freq: f, gain: 0.12, delay: i * 0.12 }));
+  }
+
+  /** A heavy enemy is coming: a drum hit and a groan. */
+  eliteSting(): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, 0.6);
+    this.tone(out, 0.6, { freq: 55, freqEnd: 28, gain: 0.9, attack: 0.002 });
+    this.tone(out, 0.5, { freq: 82, freqEnd: 41, gain: 0.5, attack: 0.002, delay: 0.35 });
+    this.burst(out, 0.7, { filter: 'lowpass', freq: 300, gain: 0.4, attack: 0.02 });
+    this.voice(out, 1.4, { f0: 60, f0End: 40, f1: [300, 220], f2: [700, 500], gain: 0.5, attack: 0.1, rasp: 0.5 });
+  }
+
+  /** The player dying: everything drops away. */
+  playerDeath(): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, 0.6);
+    this.tone(out, 1.6, { freq: 150, freqEnd: 32, gain: 0.7, attack: 0.01 });
+    this.burst(out, 0.5, { filter: 'lowpass', freq: 400, gain: 0.7 });
+    this.voice(out, 0.7, { f0: 120, f0End: 70, f1: [600, 400], f2: [1100, 700], gain: 0.5, attack: 0.02, rasp: 0.2 });
+  }
+
+  /** A wooden crate splintering. */
+  crateBreak(pos: Vector3): void {
+    if (!this.ready) return;
+    const out = this.output(pos, this.fxBus, 0.2);
+    this.burst(out, 0.15, { filter: 'bandpass', freq: 1200, q: 0.8, gain: 0.7, attack: 0.001 });
+    this.burst(out, 0.1, { filter: 'highpass', freq: 3000, gain: 0.3, delay: 0.02 });
+    this.tone(out, 0.12, { freq: 200, freqEnd: 90, gain: 0.45 });
+    for (let i = 0; i < 4; i++) this.burst(out, 0.04, { filter: 'bandpass', freq: 1500 + Math.random() * 1500, q: 2, gain: 0.15, delay: 0.1 + i * 0.05 + Math.random() * 0.04 });
+  }
+
+  /** A menu / button click. */
+  uiClick(): void {
+    if (!this.ready) return;
+    const out = this.output(null, this.fxBus, 0);
+    this.tone(out, 0.05, { freq: 1200, gain: 0.08 });
+  }
+
+  // ---------------------------------------------------------------------------
   // Melee, knife and gore
 
   /** A heavy boot landing. */

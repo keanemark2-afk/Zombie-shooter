@@ -93,5 +93,7 @@ export function buildVillage(): Level {
     lamps: p.lamps,
     playerSpawn: { x: 0, z: 12, yaw: 0 },
     enemySpawns,
+    // Beyond the gates is open country; the fight stays in and just outside the square.
+    bounds: { minX: -34, maxX: 34, minZ: -34, maxZ: 34 },
   };
 }

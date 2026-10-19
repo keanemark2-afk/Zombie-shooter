@@ -4,10 +4,45 @@ Plain-English log of what's built, what's next and what's known to be wrong.
 
 ## Where we are
 
-**Phase 2 - Melee, knife & gore: done, plus four new weapons, bursting heads and torn-off
-limbs (waiting for your OK).**
+**Building straight through to the end (you asked me to). Phases 0-3 are done; Phase 4 is next.**
 
 ## Done
+
+### Phase 3 - The horde
+- **Survival mode** (new menu button): waves of zombies walk in through the four gates of
+  the village. A short countdown, then a wave; clear it for bonus coins and a short
+  break; the next wave is bigger and brings tougher kinds. After every 50 kills a
+  heavy "elite" comes in with a warning sound.
+- **Smarter zombies:**
+  - They find their way **round** fences, sheds, crates and the well (a navigation map of
+    the village that every zombie reads).
+  - They **notice** you (they see you in front of them, hear you close by, and every
+    gunshot alerts the ones in earshot). A zombie that spots you stops and roars, which
+    alerts its neighbours.
+  - They **take turns**: only 3 can attack at a time (F1 > Ai > Max attackers). The rest
+    circle you at a distance, spread out evenly all round you (so they cut off your
+    escape), and step in when somebody else's turn is over.
+- **Your health:** a health bar (bottom-left), a red flash when you are hit, a pulsing red
+  edge and a heartbeat when it is low, a short grace period after a hit so you are
+  never chain-hit. Swings, bites, claws and explosions all hurt now. (On the shooting
+  range nothing can hurt you.)
+- **Healing:** press **H** (or **Triangle**) to use a herb or spray (takes about a second;
+  being hit stops it). Green herb = a bit of health; red + green mixed = full heal;
+  yellow + green = raises your maximum health; a first-aid spray = full heal. The game
+  picks the sensible one (a small herb for a small wound, the spray for an emergency).
+  Mixing herbs in the case comes with the case in Phase 5.
+- **Drops:** zombies, and crates you shoot open, drop glowing items that fade after 30
+  seconds - ammo, herbs and sprays, coins, treasure. The rules: ammo only drops for guns
+  you are carrying; the lower your ammo for a gun, the likelier its ammo drops; the fewer
+  healing items you carry, the likelier herbs drop. Walk near and you pick them up.
+- **Ammo is real now** in Survival (you start with just the pistol and 40 spare rounds,
+  one green herb). The shooting range still has endless ammo and carries every gun.
+- **Death screen:** a summary (wave reached, kills, coins, time) with Try again / Main menu.
+- The old "Village" practice button is gone (Survival replaces it).
+- **Automated checks:** 160 unit tests (navigation, turn-taking, health and herbs, drops,
+  waves, supplies) and a new browser test that plays a whole Survival run: waves, the
+  crowd taking turns, being noticed, health, healing (and being interrupted), drops,
+  crates, clearing a wave, dying and trying again.
 
 ### Phase 2 - Melee, knife & gore (with extra weapons, at your request)
 - **Kicks and the suplex:** when a zombie is stunned, a prompt floats over it. Press
@@ -149,16 +184,16 @@ limbs (waiting for your OK).**
 
 ## Next
 
-**Phase 3 - The horde:** zombies that surround you and take turns attacking, proper
-pathfinding round obstacles, waves and spawn points, your health bar and healing herbs,
-the item drop system, and a death screen. Survival becomes playable.
+**Phase 4 - Arsenal:** grenades (frag, flash, incendiary), the parasite mutation, all the
+enemy types (axe throwers, runners, shield-bearers, dynamite throwers, the brute and
+the chainsaw man), and two more pistols.
 
 ## Known problems / notes
-- All seven weapons are always carried, with endless ammo; the inventory case and the
-  Trader (where you'll buy and upgrade guns, and repair the knife) come in Phase 5.
-- No player health yet, so grabs, bites and blasts only shove and stun you (Phase 3).
-- Grenades, the remaining pistols, the parasite and the other enemy types are still
-  Phase 4.
+- In Survival you only have the starter pistol; the Trader (where you buy and upgrade
+  guns, repair the knife and mix herbs in the case) arrives in Phase 5.
+- Until then the shield-bearer, dynamite thrower, brute and chainsaw kinds are just
+  bigger / tougher zombies; their special moves are Phase 4.
+- Grenades, the parasite and the remaining pistols are Phase 4.
 - The suplex throws the zombie behind you, which is towards the camera, so you briefly
   see it land close up.
 - Village zombies walk straight at you and slide around obstacles; they can get

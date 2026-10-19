@@ -448,8 +448,12 @@ export class PropBuilder {
 
   crate(parent: Object3D, x: number, y: number, z: number, size: number, rotY: number): void {
     const crate = place(parent, new BoxGeometry(size, size, size), this.mats.crate, x, y + size / 2, z, { rotY });
-    crate.userData.dynamic = true; // breakable later
-    if (y < 0.01) this.boxCollider(x, z, size, size, rotY, size);
+    crate.userData.dynamic = true; // stays a separate shape so it can break
+    crate.userData.crate = true;
+    if (y < 0.01) {
+      this.boxCollider(x, z, size, size, rotY, size);
+      crate.userData.collider = this.colliders[this.colliders.length - 1];
+    }
   }
 
   /** Red explosive barrel. Tagged so later phases can make it blow up. */

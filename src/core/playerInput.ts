@@ -17,6 +17,10 @@ export class PlayerInputReader {
   private pendingReload = false;
   private pendingSprint = false;
   private pendingMelee = false;
+  private pendingHeal = false;
+  private pendingGrenade = false;
+  private pendingGrenadeCycle = false;
+  private pendingCase = false;
   private pendingKnife = false;
   private pendingPause = false;
   private pendingSlot: number | null = null;
@@ -55,6 +59,10 @@ export class PlayerInputReader {
     this.pendingReload ||= this.pressed('reload');
     this.pendingSprint ||= this.pressed('sprint');
     this.pendingMelee ||= this.pressed('melee');
+    this.pendingHeal ||= this.pressed('heal');
+    this.pendingGrenade ||= this.pressed('grenade');
+    this.pendingGrenadeCycle ||= this.pressed('nextGrenade');
+    this.pendingCase ||= this.pressed('caseOpen');
     this.pendingKnife ||= this.pressed('knife');
     this.pendingPause ||= this.pressed('pause');
     slotKeys.forEach((key, i) => {
@@ -79,6 +87,13 @@ export class PlayerInputReader {
     yaw -= this.pad.rightX * stick * aimScale * dt;
     pitch -= this.pad.rightY * stick * aimScale * dt * invert;
     return { yaw, pitch };
+  }
+
+  /** Was the case asked for (Tab / Create)? Clears the request. */
+  takeCase(): boolean {
+    const c = this.pendingCase;
+    this.pendingCase = false;
+    return c;
   }
 
   /** Was pause asked for (gamepad Options/Menu)? Clears the request. */
@@ -115,6 +130,10 @@ export class PlayerInputReader {
       sprint: this.held('sprint'),
       sprintPressed: this.pendingSprint,
       meleePressed: this.pendingMelee,
+      healPressed: this.pendingHeal,
+      grenadePressed: this.pendingGrenade,
+      grenadeHeld: this.held('grenade'),
+      grenadeCycle: this.pendingGrenadeCycle,
       knifePressed: this.pendingKnife,
       knifeHeld: this.held('knife'),
       weaponSlot: this.pendingSlot,
@@ -124,6 +143,9 @@ export class PlayerInputReader {
     this.pendingReload = false;
     this.pendingSprint = false;
     this.pendingMelee = false;
+    this.pendingHeal = false;
+    this.pendingGrenade = false;
+    this.pendingGrenadeCycle = false;
     this.pendingKnife = false;
     this.pendingSlot = null;
     this.pendingCycle = 0;
@@ -133,7 +155,8 @@ export class PlayerInputReader {
   /** Forget any remembered presses (e.g. when the game is paused). */
   clear(): void {
     this.pendingFire = this.pendingReload = this.pendingSprint = this.pendingPause = false;
-    this.pendingMelee = this.pendingKnife = false;
+    this.pendingMelee = this.pendingKnife = this.pendingHeal = this.pendingGrenade = this.pendingGrenadeCycle = false;
+    this.pendingCase = false;
     this.pendingSlot = null;
     this.pendingCycle = 0;
   }

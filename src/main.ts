@@ -4,7 +4,8 @@ import type { Zone } from './combat/damage';
 import { tuning, type Tuning } from './config/tuning';
 import { Game } from './core/game';
 import { installErrorOverlay, showError } from './debug/errorOverlay';
-import type { LevelId } from './world/level';
+import type { GameMode } from './core/modes';
+import type { EnemyKind } from './enemies/kinds';
 
 declare global {
   interface Window {
@@ -16,11 +17,14 @@ declare global {
       ticks: () => number;
       screenStats: () => { mean: number; spread: number };
       renderInfo: () => { calls: number; triangles: number; programs: number };
-      start: (mode: LevelId) => void;
+      start: (mode: GameMode) => void;
       state: () => ReturnType<Game['debugState']>;
       aimAt: (zone: Zone) => boolean;
       view: (from: [number, number, number] | null, to?: [number, number, number], keepControls?: boolean) => void;
       zombie: (kind: Parameters<Game['debugZombie']>[0], value?: number) => boolean;
+      killAll: () => void;
+      spawn: (kind: EnemyKind, distance: number, aware: boolean, side?: number) => number;
+      cheat: (kind: Parameters<Game['debugCheat']>[0], value?: number, key?: string) => void;
     };
   }
 }
@@ -71,5 +75,8 @@ if (!webglAvailable()) {
     aimAt: (zone) => game.debugAimAt(zone),
     view: (from, to, keepControls) => game.debugView(from ? new Vector3(...from) : null, to ? new Vector3(...to) : null, keepControls),
     zombie: (kind, value) => game.debugZombie(kind, value),
+    killAll: () => game.debugKillAll(),
+    spawn: (kind, distance, aware, side) => game.debugSpawn(kind, distance, aware, side),
+    cheat: (kind, value, key) => game.debugCheat(kind, value, key),
   };
 }

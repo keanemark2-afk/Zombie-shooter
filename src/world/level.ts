@@ -20,4 +20,6 @@ export interface Level {
   readonly playerSpawn: SpawnPoint;
   /** Where enemies appear. */
   readonly enemySpawns: SpawnPoint[];
+  /** The player can't walk past this (if set). */
+  readonly bounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
 }

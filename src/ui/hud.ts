@@ -37,6 +37,18 @@ export class Hud {
   private readonly scopeCross: HTMLDivElement;
   private readonly banner: HTMLDivElement;
   private bannerTimer = 0;
+  private readonly healthFill: HTMLDivElement;
+  private readonly healthExtra: HTMLDivElement;
+  private readonly healthText: HTMLSpanElement;
+  private readonly healthBox: HTMLDivElement;
+  private readonly healProgress: HTMLDivElement;
+  private readonly healItems: HTMLDivElement;
+  private readonly feed: HTMLDivElement;
+  private readonly danger: HTMLDivElement;
+  private readonly coins: HTMLDivElement;
+  private readonly grenadeBox: HTMLDivElement;
+  private feedLines: Array<{ el: HTMLDivElement; life: number }> = [];
+  private itemsHtml = '';
   private stripTimer = 0;
   private stripKey = '';
   private markerTimer = 0;
@@ -46,6 +58,7 @@ export class Hud {
     this.root = document.createElement('div');
     this.root.className = 'hud';
     this.root.innerHTML = `
+      <div class="danger-vignette"></div>
       <div class="hurt-flash"></div>
       <div class="hit-marker"><i></i><i></i></div>
       <div class="scope" hidden><div class="scope-cross"><i class="h"></i><i class="v"></i><b></b></div></div>
@@ -65,6 +78,15 @@ export class Hud {
         <div class="reload-bar"><div class="reload-fill"></div></div>
         <div class="knife-bar" title="Knife condition"><span>KNIFE</span><div class="knife-track"><div class="knife-fill"></div></div></div>
       </div>
+      <div class="health-box">
+        <div class="pickup-feed"></div>
+        <div class="heal-items"></div>
+        <div class="health-label">HEALTH <span class="health-text">100</span></div>
+        <div class="health-bar"><div class="health-fill"></div><div class="health-extra"></div></div>
+        <div class="heal-progress"><div></div></div>
+      </div>
+      <div class="coin-counter"></div>
+      <div class="grenade-box"></div>
       <div class="range-stats"></div>
       <div class="play-hint"></div>`;
     document.body.appendChild(this.root);
@@ -92,6 +114,16 @@ export class Hud {
     this.scope = q('.scope');
     this.scopeCross = q('.scope-cross');
     this.banner = q('.banner');
+    this.healthBox = q('.health-box');
+    this.healthFill = q('.health-fill');
+    this.healthExtra = q('.health-extra');
+    this.healthText = q('.health-text');
+    this.healProgress = q('.heal-progress');
+    this.healItems = q('.heal-items');
+    this.feed = q('.pickup-feed');
+    this.danger = q('.danger-vignette');
+    this.coins = q('.coin-counter');
+    this.grenadeBox = q('.grenade-box');
     this.root.hidden = true;
   }
 
@@ -190,6 +222,81 @@ export class Hud {
     this.hurtLevel = 1;
   }
 
+  /** The box at the top of the screen (wave counter, score...). Plain HTML; null hides it. */
+  setTopInfo(html: string | null): void {
+    if (html === null) {
+      this.stats.style.display = 'none';
+      return;
+    }
+    this.stats.style.display = 'block';
+    if (this.stats.innerHTML !== html) this.stats.innerHTML = html;
+  }
+
+  /** The health gauge. `healProgress` 0..1 while a healing item is being used. */
+  setHealth(current: number, max: number, baseMax: number, danger: boolean, healProgress: number | null, show: boolean): void {
+    this.healthBox.style.display = show ? '' : 'none';
+    const frac = max > 0 ? current / max : 0;
+    this.healthFill.style.width = `${Math.max(0, Math.min(100, frac * (baseMax > 0 ? (max / Math.max(max, baseMax)) * 100 : 100)))}%`;
+    // The part of the gauge added by yellow herbs is drawn in gold.
+    this.healthExtra.style.width = `${max > baseMax ? ((max - baseMax) / max) * 100 : 0}%`;
+    const text = String(Math.ceil(current));
+    if (this.healthText.textContent !== text) this.healthText.textContent = text;
+    this.healthBox.classList.toggle('danger', danger);
+    this.healthFill.style.background = frac < 0.3 ? '#d6403a' : frac < 0.6 ? '#e0b43a' : '#5fbf5a';
+    this.healProgress.style.visibility = healProgress === null ? 'hidden' : 'visible';
+    if (healProgress !== null) (this.healProgress.firstElementChild as HTMLElement).style.width = `${Math.min(100, healProgress * 100)}%`;
+  }
+
+  /** Red vignette that pulses when your health is low (0 = off). */
+  setDanger(level: number, pulse: number): void {
+    this.danger.style.opacity = String(level * (0.55 + 0.45 * pulse));
+  }
+
+  /** Counts of what you carry for healing, shown above the health bar. */
+  setHealItems(counts: { g: number; r: number; y: number; mixed: number; spray: number }, key: string): void {
+    const html =
+      `<span class="hi g" title="Green herbs">${counts.g}</span>` +
+      `<span class="hi r" title="Red herbs">${counts.r}</span>` +
+      `<span class="hi y" title="Yellow herbs">${counts.y}</span>` +
+      (counts.mixed ? `<span class="hi m" title="Mixed herbs">${counts.mixed}</span>` : '') +
+      `<span class="hi s" title="First-aid sprays">${counts.spray}</span>` +
+      `<span class="hi-key">${key} to heal</span>`;
+    if (html !== this.itemsHtml) {
+      this.itemsHtml = html;
+      this.healItems.innerHTML = html;
+    }
+  }
+
+  setCoins(coins: number | null): void {
+    if (coins === null) {
+      this.coins.style.display = 'none';
+      return;
+    }
+    this.coins.style.display = 'block';
+    const text = `<span class="coin-icon"></span>${coins.toLocaleString('en-US')}`;
+    if (this.coins.innerHTML !== text) this.coins.innerHTML = text;
+  }
+
+  /** What grenade you have selected and how many (null hides it). */
+  setGrenades(html: string | null): void {
+    if (html === null) {
+      this.grenadeBox.style.display = 'none';
+      return;
+    }
+    this.grenadeBox.style.display = 'block';
+    if (this.grenadeBox.innerHTML !== html) this.grenadeBox.innerHTML = html;
+  }
+
+  /** A short line that floats up and fades ("+12 pistol rounds"). */
+  addFeed(text: string, kind: 'good' | 'bad' | 'info' = 'good'): void {
+    const el = document.createElement('div');
+    el.className = `feed-line ${kind}`;
+    el.textContent = text;
+    this.feed.appendChild(el);
+    this.feedLines.push({ el, life: 3 });
+    while (this.feedLines.length > 5) this.feedLines.shift()!.el.remove();
+  }
+
   setStats(stats: RangeStats | null): void {
     if (!stats) {
       this.stats.style.display = 'none';
@@ -211,6 +318,11 @@ export class Hud {
     this.strip.classList.toggle('visible', this.stripTimer > 0);
     this.markerTimer -= dt;
     if (this.markerTimer <= 0) this.marker.classList.remove('show');
+    for (const l of this.feedLines) {
+      l.life -= dt;
+      l.el.style.opacity = String(Math.max(0, Math.min(1, l.life)));
+    }
+    while (this.feedLines.length && this.feedLines[0].life <= 0) this.feedLines.shift()!.el.remove();
     this.hurtLevel = Math.max(0, this.hurtLevel - dt * 1.6);
     if (this.bannerTimer > 0) {
       this.bannerTimer -= dt;

@@ -57,7 +57,19 @@ The full brief is the user's original prompt; key rules are repeated here.
   plays moves (`startMelee`, `MELEE_TIMING`) and calls `meleeEvent`; the game applies
   them to `meleeTarget`. The suplex body is placed by `Game.carryPose` each tick.
   Zombie attacks go through `ZombieHost.attackPlayer` (parry -> grab -> hit).
-- Test hooks: `__deadAcre.zombie(kind, value)` forces a zombie state / grab / place.
+- Test hooks: `__deadAcre.zombie(kind, value)` forces a zombie state / grab / place;
+  `killAll()`, `spawn(kind, distance, aware)`, `cheat(kind, value)` (hurt / herb / coins / wave...).
+  `tests/smoke/helpers.ts` has `fastMode(page)` (no shadows or glow, long catch-up steps:
+  the game then runs faster than real time in the slow test browser) and `withGame`.
+- Modes: `GameMode` = survival | score | range (`src/core/modes.ts`); `Game.modeId`. Run
+  logic: `startMode` / `clearRun`, `survivalTick` (waves via `WaveDirector`), `onZombieDied`
+  (counts kills, rolls drops), `damagePlayer` (the only way health goes down).
+- Group AI (`src/ai/`): `NavGrid` (flow field from the player; bucket queue, ~4 ms),
+  `TokenPool` (who may attack), `assignSurroundAngles`, and `Horde` which ties them to
+  the zombies. Zombies get awareness (`aware`, `senses`, `noticePlayer`) and per-kind
+  numbers (`tuning.enemyTypes`, `src/enemies/kinds.ts`).
+- Pure rules, all unit tested: `combat/health.ts` (health, herbs), `combat/drops.ts`
+  (`rollDrop`), `modes/waves.ts`, `inventory/supplies.ts`, `ai/*`.
 - Quick turn only triggers when the character faces away from the camera (the
   user hit accidental 180s when sprinting while backing off).
 - Game world updates at a fixed 60 Hz (`tick`), drawing interpolates positions (`render`).

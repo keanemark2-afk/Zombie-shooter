@@ -93,3 +93,31 @@ export async function waitForDummyState(page: Page, states: string[]): Promise<v
     .poll(async () => (await state(page)).zombies.find((z) => z.alive)?.state ?? 'none', { timeout: 120_000 })
     .toMatch(new RegExp(`^(${states.join('|')})$`));
 }
+
+/** Makes the test browser run the game faster than real time (no shadows or glow, long catch-up steps). */
+export async function fastMode(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const t = window.__deadAcre!.tuning;
+    t.graphics.shadows = false;
+    t.postFx.enabled = false;
+    t.postFx.grain = 0;
+    t.simulation.maxFrameTime = 0.5;
+  });
+}
+
+type Game = {
+  player: { give: (id: string, n: number) => void; position: { x: number; z: number; y: number }; yaw: number };
+  health: { reset: (n: number) => void; heal: (n: number) => void; current: number };
+  zombies: Array<{ teleport: (x: number, z: number, yaw: number) => void; alive: boolean; invincible: boolean }>;
+  supplies: { items: unknown[]; coins: number };
+};
+
+/** Runs a function inside the page with the Game object (only available with ?autotest). */
+export async function withGame<T>(page: Page, fn: (g: Game) => T): Promise<T> {
+  return page.evaluate(`(${fn.toString()})(window.__game)`) as Promise<T>;
+}
+
+export async function waitForTicks(page: Page, count: number): Promise<void> {
+  const start = await page.evaluate(() => window.__deadAcre!.ticks());
+  await page.waitForFunction((target) => window.__deadAcre!.ticks() >= target, start + count, { timeout: 240_000 });
+}

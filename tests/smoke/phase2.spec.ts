@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { shootAt, state, waitForFrames, watchErrors } from './helpers';
+import { fastMode, shootAt, state, waitForFrames, watchErrors } from './helpers';
 
 // Phase 2: bursting heads and torn-off limbs, the new guns, kicks, the
 // suplex, the knife finisher, slashing, parrying and breaking free of grabs.
@@ -30,6 +30,7 @@ test('phase 2: gore, new weapons, kicks, knife, parry and grabs', async ({ page 
   const errors = watchErrors(page);
   await page.goto('/?autotest');
   await page.waitForFunction(() => window.__deadAcre?.ready === true, null, { timeout: 60_000 });
+  await fastMode(page);
 
   // The Gore choice is in Settings.
   await page.getByRole('button', { name: 'Settings' }).click();
@@ -123,6 +124,7 @@ test('phase 2: gore, new weapons, kicks, knife, parry and grabs', async ({ page 
   }
   expect(await lastHit(page)).toMatch(/PARR/);
   expect((await state(page)).knife).toBeLessThan(100);
+  await page.evaluate(() => (window.__deadAcre!.tuning.simulation.maxFrameTime = 0.5));
 
   // Submachine gun: keeps firing while the trigger is held.
   await restartRange(page, { 'range.dummyBehavior': 'stand', 'range.dummyDistance': 8, 'range.dummyInvincible': true, 'simulation.maxFrameTime': 0.1 });

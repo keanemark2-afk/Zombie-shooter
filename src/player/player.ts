@@ -36,6 +36,12 @@ export interface PlayerInput {
   sprintPressed: boolean;
   /** Melee / action button pressed (F / Cross). */
   meleePressed: boolean;
+  /** Quick-heal key pressed (H / Triangle). */
+  healPressed: boolean;
+  /** Grenade key pressed / held (G / L1), and the grenade-type cycle key. */
+  grenadePressed: boolean;
+  grenadeHeld: boolean;
+  grenadeCycle: boolean;
   /** Knife button pressed (V / R1) and whether it is held. */
   knifePressed: boolean;
   knifeHeld: boolean;
@@ -55,6 +61,10 @@ export const NO_INPUT: PlayerInput = {
   sprint: false,
   sprintPressed: false,
   meleePressed: false,
+  healPressed: false,
+  grenadePressed: false,
+  grenadeHeld: false,
+  grenadeCycle: false,
   knifePressed: false,
   knifeHeld: false,
   weaponSlot: null,
@@ -72,6 +82,10 @@ export interface PlayerHost {
   /** A reload, pump or casing moment from the gun in your hands. */
   gunEvent(event: GunEvent): void;
   footstep(pos: Vector3, sprinting: boolean): void;
+  /** The healing animation has finished: use up the item. */
+  healFinished(): void;
+  /** A grenade leaves the hand. */
+  throwGrenade(): void;
   /** The knife slash reaches out right now. */
   knifeSlash(): void;
   /** A kick lands, a suplex lifts or slams, a stab goes in. */
@@ -131,6 +145,10 @@ export class Player {
   readonly longGuns = new Map<WeaponId, LongGunModel>();
   readonly guns: Gun[];
   readonly knife = new Knife(tuning.knife.durability);
+  /** Set by the game: does spare ammo never run out? */
+  infiniteAmmo = false;
+  /** The guns you are carrying (the practice range carries them all). */
+  readonly carried = new Set<WeaponId>(WEAPONS.map((w) => w.id));
   readonly reticle = new ReticleFocus();
   readonly position = new Vector3();
   readonly prevPosition = new Vector3();
@@ -160,6 +178,14 @@ export class Player {
   guarding = false;
   /** Held in a zombie's grip. */
   grabbed = false;
+  /** Seconds left of using a healing item (0 = not healing). */
+  healTime = 0;
+  healTotal = 1;
+  /** Has died: lies on the ground and takes no more input. */
+  dead = false;
+  deathTime = 0;
+  /** Seconds left of a grenade throw animation. */
+  throwTime = 0;
 
   private readonly knifeModel: Group;
   private readonly blender = new PoseBlender();
@@ -219,6 +245,37 @@ export class Player {
 
   get stats(): WeaponStats {
     return this.gun.stats;
+  }
+
+  /** Is this gun one you are carrying? */
+  has(id: WeaponId): boolean {
+    return this.carried.has(id);
+  }
+
+  /** Carries exactly these guns (each starts full), with the given spare rounds. */
+  setLoadout(loadout: Partial<Record<WeaponId, number>>, startWeapon?: WeaponId): void {
+    this.carried.clear();
+    for (const g of this.guns) {
+      const reserve = loadout[g.def.id];
+      if (reserve === undefined) continue;
+      this.carried.add(g.def.id);
+      g.reset();
+      g.reserve = reserve;
+    }
+    const want = startWeapon && this.carried.has(startWeapon) ? startWeapon : this.guns.find((g) => this.carried.has(g.def.id))?.def.id;
+    const i = this.guns.findIndex((g) => g.def.id === want);
+    this.current = i >= 0 ? i : 0;
+    this.switchTime = 0;
+    this.switchTo = -1;
+  }
+
+  /** Adds a gun to what you carry (bought from the Trader). */
+  give(id: WeaponId, reserve = 0): void {
+    this.carried.add(id);
+    const g = this.guns.find((x) => x.def.id === id);
+    if (g && !g.reloading) {
+      g.reserve = Math.max(g.reserve, reserve);
+    }
   }
 
   /** The weapon being switched to, or the one in your hands. */
@@ -288,8 +345,9 @@ export class Player {
     this.velocity.set(0, 0, 0);
     this.yaw = this.prevYaw = yaw;
     for (const g of this.guns) g.reset();
-    const start = this.guns.findIndex((g) => g.def.id === tuning.weapons.startWeapon);
-    this.current = start >= 0 ? start : 0;
+    const start = this.guns.findIndex((g) => g.def.id === tuning.weapons.startWeapon && this.carried.has(g.def.id));
+    const first = this.guns.findIndex((g) => this.carried.has(g.def.id));
+    this.current = start >= 0 ? start : Math.max(0, first);
     this.switchTime = 0;
     this.switchTo = -1;
     this.stunTime = 0;
@@ -299,6 +357,10 @@ export class Player {
     this.sinceKnifePress = 999;
     this.guarding = false;
     this.grabbed = false;
+    this.healTime = 0;
+    this.dead = false;
+    this.deathTime = 0;
+    this.throwTime = 0;
     this.knife.repair(tuning.knife.durability);
     this.blender.snap(this.pose());
     this.blender.apply(this.rig);
@@ -315,8 +377,34 @@ export class Player {
     return out.addScaledVector(right, Math.tan(spread) * sway.x).addScaledVector(up, Math.tan(spread) * sway.y).normalize();
   }
 
+  get healing(): boolean {
+    return this.healTime > 0;
+  }
+
+  /** Starts using a healing item (takes a moment, and being hit stops it). */
+  startHeal(seconds: number): void {
+    this.healTime = seconds;
+    this.healTotal = seconds;
+    this.aiming = false;
+    this.gun.cancelReload();
+  }
+
+  /** Falls down dead. */
+  die(): void {
+    if (this.dead) return;
+    this.dead = true;
+    this.deathTime = 0;
+    this.aiming = false;
+    this.healTime = 0;
+    this.melee = null;
+    this.grabbed = false;
+    this.knifeTime = 0;
+    this.velocity.set(0, 0, 0);
+  }
+
   /** Something hit us: brief stun and a shove (`push` metres or so). */
   hurt(from: Vector3, push = tuning.zombie.attackPush): void {
+    this.healTime = 0;
     this.stunTime = tuning.player.hitStunTime;
     this.push.subVectors(this.position, from).setY(0).normalize().multiplyScalar(push * 5);
     this.blender.kick('spine', 7, 0, 0);
@@ -365,6 +453,24 @@ export class Player {
     this.stunTime = Math.max(0, this.stunTime - dt);
     this.recoilAnim *= Math.exp(-12 * dt);
     this.sinceKnifePress += dt;
+    if (this.dead) {
+      this.deathTime += dt;
+      this.velocity.multiplyScalar(0.8);
+      this.position.addScaledVector(this.push, dt);
+      this.push.multiplyScalar(Math.exp(-8 * dt));
+      world.resolveCircle(this.position, tuning.player.radius);
+      this.position.y = world.groundHeight(this.position.x, this.position.z);
+      this.aimWeight = smooth(this.aimWeight, 0, 18, dt);
+      this.blender.update(this.pose(), dt, 9, 14);
+      this.blender.apply(this.rig);
+      for (const j of IK_JOINTS) this.baseQuats.get(j)!.copy(this.rig.joints[j].quaternion);
+      return;
+    }
+    this.throwTime = Math.max(0, this.throwTime - dt);
+    if (this.healTime > 0) {
+      this.healTime = Math.max(0, this.healTime - dt);
+      if (this.healTime === 0) host.healFinished();
+    }
 
     // Knife: a quick slash, or held up to block.
     if (input.knifePressed && !this.busy) {
@@ -425,11 +531,15 @@ export class Player {
     const p = tuning.player;
     // Weapon swapping: keys 1-7, mouse wheel, D-pad left/right.
     if (input.weaponSlot !== null) {
-      const i = this.guns.findIndex((g) => g.def.slot === input.weaponSlot);
+      const i = this.guns.findIndex((g) => g.def.slot === input.weaponSlot && this.carried.has(g.def.id));
       if (i >= 0 && i !== this.current) this.startSwitch(i);
-    } else if (input.weaponCycle !== 0) {
-      const from = this.switchTo >= 0 ? this.switchTo : this.current;
-      this.startSwitch((from + input.weaponCycle + this.guns.length) % this.guns.length);
+    } else if (input.weaponCycle !== 0 && this.carried.size > 1) {
+      let i = this.switchTo >= 0 ? this.switchTo : this.current;
+      for (let n = 0; n < this.guns.length; n++) {
+        i = (i + input.weaponCycle + this.guns.length) % this.guns.length;
+        if (this.carried.has(this.guns[i].def.id)) break;
+      }
+      this.startSwitch(i);
     }
     if (this.switchTime > 0) {
       const total = tuning.weapons.switchTime;
@@ -443,7 +553,7 @@ export class Player {
 
     const stunned = this.stunTime > 0;
     const turning = this.quickTurnTime > 0;
-    this.aiming = input.aim && !stunned && !turning && !this.switching;
+    this.aiming = input.aim && !stunned && !turning && !this.switching && !this.healing;
     const moveLen = Math.min(1, Math.hypot(input.moveX, input.moveY));
     this.sprinting = input.sprint && !this.aiming && moveLen > 0.3 && !stunned;
 
@@ -470,6 +580,7 @@ export class Player {
     if (moveDir.lengthSq() > 1) moveDir.normalize();
     let speed = this.sprinting ? p.sprintSpeed : p.walkSpeed;
     if (this.aiming) speed = p.classicAim || this.def.scope ? 0 : p.aimWalkSpeed;
+    if (this.healing) speed *= 0.45;
     if (stunned || turning) speed = 0;
     const wish = moveDir.multiplyScalar(speed);
     const accel = 1 - Math.exp(-p.acceleration * dt);
@@ -532,9 +643,9 @@ export class Player {
 
   private updateGun(dt: number, input: PlayerInput, cam: ShoulderCamera, host: PlayerHost): void {
     const gun = this.gun;
-    const infinite = tuning.weapons.infiniteAmmo;
+    const infinite = this.infiniteAmmo;
     gun.tick(dt, infinite, (e) => host.gunEvent(e));
-    if (this.switching || this.busy) return;
+    if (this.switching || this.busy || this.healing) return;
 
     if (input.reloadPressed) gun.startReload(infinite);
 
@@ -578,6 +689,15 @@ export class Player {
     }
     this.knifeModel.visible = this.knifeTime > 0 || this.guarding || this.knifeWeight > 0.3 || this.melee === 'finisher';
 
+    if (this.dead) {
+      // The gun lies where it was dropped, out of the way.
+      if (longModel) {
+        longModel.group.position.set(0.3, 0.12, -0.4);
+        longModel.group.rotation.set(0, 1.2, 1.5);
+        longModel.group.updateMatrixWorld(true);
+      }
+      return;
+    }
     if (longModel) this.holdLongGun(longModel, aimPoint);
     else this.holdPistol(aimPoint);
   }
@@ -719,6 +839,7 @@ export class Player {
   // -------------------------------------------------------------------------
 
   private pose(): Pose {
+    if (this.dead) return this.deadPose();
     if (this.melee) return this.meleePose(this.melee, this.meleeProgress);
     const j: Partial<Record<JointName, Euler3>> = {};
     const pose: Pose = { j };
@@ -838,6 +959,45 @@ export class Player {
       j.elbowR = [1.2, 0, 0];
     }
     this.knifeArm(j);
+    if (this.healing) {
+      // Rubs the herb into the wound: left hand up to the chest and shoulder.
+      const u = Math.sin(Math.min(1, (this.healTotal - this.healTime) / this.healTotal) * Math.PI);
+      j.shoulderL = [1.1 + 0.5 * u, 0, 0.55];
+      j.elbowL = [1.9 * Math.min(1, u * 2), 0, 0];
+      j.head = [0.3, 0.2, 0];
+      j.spine = [0.2 * u, 0, 0];
+    }
+    if (this.throwTime > 0) {
+      // Overarm throw with the left hand.
+      const u = 1 - this.throwTime / 0.45;
+      const back = Math.min(1, u / 0.4);
+      const fwd = Math.max(0, (u - 0.4) / 0.6);
+      j.shoulderL = [-1.2 * back + 3.4 * fwd, 0, 0.2];
+      j.elbowL = [0.7 * (1 - fwd), 0, 0];
+      j.spine = [0.1 - 0.35 * back + 0.5 * fwd, 0.5 * (1 - fwd) - 0.3 * fwd, 0];
+    }
+    return pose;
+  }
+
+  /** Lying dead on the ground, arms and legs sprawled. */
+  private deadPose(): Pose {
+    const j: Partial<Record<JointName, Euler3>> = {};
+    const u = Math.min(1, this.deathTime / 0.9);
+    const fall = u * u;
+    const pose: Pose = { j };
+    pose.bodyPitch = -1.5 * fall;
+    pose.bodyLift = 0.13 * fall;
+    pose.hipsY = -0.2 * Math.sin(Math.min(1, u * 1.4) * Math.PI) * 0.6;
+    j.spine = [0.1 * fall, 0, 0];
+    j.neck = [0.4 * fall, 0, 0];
+    j.head = [0.2 * fall, 0, 0.7 * fall];
+    j.shoulderL = [2.5 * fall, 0, -0.4];
+    j.shoulderR = [2.3 * fall, 0, 0.45];
+    j.elbowL = [0.4, 0, 0];
+    j.elbowR = [0.6, 0, 0];
+    j.hipL = [0.05, 0, -0.12];
+    j.hipR = [-0.1, 0, 0.14];
+    j.kneeR = [-0.3, 0, 0];
     return pose;
   }
 

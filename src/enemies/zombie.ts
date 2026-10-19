@@ -7,12 +7,14 @@ import type { HitResult, LimbSegment, LimbZone, TargetState, Zone } from '../com
 import type { Openness } from '../combat/melee';
 import { tuning } from '../config/tuning';
 import { seededRandom } from '../world/textures';
+import { kindStats, type EnemyKind, type KindStats } from './kinds';
 import type { World } from '../world/world';
 
 export type ZombieState =
   | 'idle'
   | 'walk'
   | 'run'
+  | 'spot'
   | 'windup'
   | 'swing'
   | 'grabWindup'
@@ -69,6 +71,18 @@ export interface ZombieHost {
   attackPlayer(zombie: Zombie, kind: AttackKind): AttackOutcome;
   /** Is anyone allowed to try grabbing the player right now? */
   canGrab(zombie: Zombie): boolean;
+  /** Is the player still alive (zombies lose interest in a dead player)? */
+  playerAlive: boolean;
+  /** Is it this zombie's turn to attack? */
+  hasToken(zombie: Zombie): boolean;
+  /** Where this zombie waits for its turn, or null. */
+  waitingSpot(zombie: Zombie): { x: number; z: number } | null;
+  /** Is the way between two points free of obstacles? */
+  lineClear(a: Vector3, b: Vector3): boolean;
+  /** Which way to walk to reach the player round obstacles (false: no way). */
+  steer(from: Vector3, out: { x: number; z: number }): boolean;
+  /** This zombie has just noticed the player: alert its neighbours. */
+  spotted(zombie: Zombie): void;
   /** A held tool was knocked loose and should tumble to the ground. */
   dropProp(prop: Object3D, velocity: Vector3, spin: Vector3): void;
 }
@@ -83,6 +97,7 @@ let nextId = 1;
 const fwd = new Vector3();
 const toPlayer = new Vector3();
 const tmp = new Vector3();
+const steerOut = { x: 0, z: 0 };
 
 function angleDiff(a: number, b: number): number {
   let d = (b - a) % (Math.PI * 2);
@@ -115,6 +130,14 @@ export class Zombie {
   readonly missing = new Map<LimbZone, LimbSegment>();
   /** The head has burst. */
   headless = false;
+  readonly kind: EnemyKind;
+  readonly stats: KindStats;
+  /** Has noticed the player (and is coming for them). */
+  aware = false;
+  /** Goes up by one each time it makes an attack. */
+  attackCount = 0;
+  /** Called once when it dies. */
+  onDeath: ((zombie: Zombie) => void) | null = null;
   /** Blown to pieces (nothing left to draw). */
   gibbed = false;
 
@@ -145,11 +168,28 @@ export class Zombie {
   private readonly home = new Vector3();
   private sink = 0;
   private readonly carryQuat = new Quaternion();
+  private alertDelay = -1;
+  private attackCooldown = 0;
+  private deathReported = false;
+  private readonly wanderTarget = new Vector3();
+  private wanderWait = 0;
+  private wandering = false;
 
-  constructor(seed: number, x: number, z: number, yaw: number, behavior: ZombieBehavior, opts: { holdsTool: boolean; invincible?: boolean }) {
+  constructor(
+    seed: number,
+    x: number,
+    z: number,
+    yaw: number,
+    behavior: ZombieBehavior,
+    opts: { holdsTool: boolean; invincible?: boolean; kind?: EnemyKind; aware?: boolean },
+  ) {
     this.rand = seededRandom(seed * 31 + 7);
+    this.kind = opts.kind ?? 'shambler';
+    this.stats = kindStats(this.kind);
     this.look = zombieLook(seed);
     this.rig = buildRig(this.look);
+    this.rig.root.scale.multiplyScalar(this.stats.size);
+    this.aware = opts.aware ?? false;
     this.rig.root.userData.zombie = this;
     for (const part of this.rig.parts) part.userData.zombie = this;
     this.position.set(x, 0, z);
@@ -157,7 +197,7 @@ export class Zombie {
     this.yaw = yaw;
     this.behavior = behavior;
     this.invincible = opts.invincible ?? false;
-    this.health = tuning.zombie.health;
+    this.health = tuning.zombie.health * this.stats.health;
     this.reaches = this.rand() < 0.6;
     this.voicePitch = 0.85 + this.rand() * 0.35;
     this.groanTimer = 1 + this.rand() * tuning.zombie.groanInterval;
@@ -299,6 +339,73 @@ export class Zombie {
     this.state = state;
     this.stateTime = 0;
     this.stateDuration = duration;
+    if ((state === 'dying' || state === 'dead') && !this.deathReported) {
+      this.deathReported = true;
+      this.onDeath?.(this);
+    }
+  }
+
+  /** Ready and able to make an attack (not stunned, recovering or crawling). */
+  get canAttack(): boolean {
+    if (!this.alive || !this.aware || this.crawler || this.attackCooldown > 0) return false;
+    return ['idle', 'walk', 'run', 'windup', 'swing', 'grabWindup', 'lunge'].includes(this.state);
+  }
+
+  /** Someone nearby noticed the player: this zombie notices too, in a moment. */
+  alert(delay: number): void {
+    if (!this.aware && this.alertDelay < 0) this.alertDelay = delay;
+  }
+
+  /** Stops what it is doing, turns and roars: it has seen the player. */
+  private noticePlayer(host: ZombieHost): void {
+    this.aware = true;
+    this.alertDelay = -1;
+    this.setState('spot', tuning.ai.spotTime);
+    host.voice.roar(this.chestPosition(tmp), this.voicePitch);
+    host.spotted(this);
+  }
+
+  private senses(dt: number, dist: number, yawToPlayer: number, host: ZombieHost): void {
+    if (this.aware || this.behavior !== 'hunt' || !host.playerAlive) return;
+    if (this.alertDelay >= 0) {
+      this.alertDelay -= dt;
+      if (this.alertDelay < 0) {
+        this.aware = true;
+        this.alertDelay = -1;
+      }
+      return;
+    }
+    const ai = tuning.ai;
+    const heard = dist < ai.hearRange;
+    const seen =
+      dist < ai.sightRange &&
+      Math.abs(angleDiff(this.yaw, yawToPlayer)) < MathUtils.degToRad(ai.sightAngle) &&
+      host.lineClear(this.position, host.playerPosition);
+    if (heard || seen) this.noticePlayer(host);
+  }
+
+  /** Ambles about near where it stands, now and then pausing, until it notices the player. */
+  private wander(dt: number): { wantSpeed: number; wantYaw: number } {
+    if (!this.wandering) {
+      this.wanderWait -= dt;
+      if (this.state !== 'idle') this.setState('idle');
+      if (this.wanderWait <= 0) {
+        const a = this.rand() * Math.PI * 2;
+        const r = 2 + this.rand() * 5;
+        this.wanderTarget.set(this.home.x + Math.cos(a) * r, 0, this.home.z + Math.sin(a) * r);
+        this.wandering = true;
+      }
+      return { wantSpeed: 0, wantYaw: this.yaw };
+    }
+    const dx = this.wanderTarget.x - this.position.x;
+    const dz = this.wanderTarget.z - this.position.z;
+    if (Math.hypot(dx, dz) < 0.6 || this.stateTime > 12) {
+      this.wandering = false;
+      this.wanderWait = 1.5 + this.rand() * 3.5;
+      return { wantSpeed: 0, wantYaw: this.yaw };
+    }
+    if (this.state !== 'walk') this.setState('walk');
+    return { wantSpeed: tuning.ai.wanderSpeed * this.stats.speed, wantYaw: Math.atan2(-dx, -dz) };
   }
 
   forward(out: Vector3): Vector3 {
@@ -309,6 +416,8 @@ export class Zombie {
   applyHit(hit: HitResult, dir: Vector3, voice: ZombieVoice, host: ZombieHost): void {
     if (!this.alive) return;
     this.health = hit.healthAfter;
+    this.aware = true;
+    this.alertDelay = -1;
     const fromFront = this.forward(fwd).dot(dir) < 0;
     const away = fromFront ? 1 : -1; // tilt away from the shooter
     const side = Math.sign(tmp.set(-fwd.z, 0, fwd.x).dot(dir)) || 1;
@@ -576,6 +685,12 @@ export class Zombie {
     this.setState('headStagger', tuning.reactions.headStaggerTime * 0.9);
   }
 
+  /** An attack has just been made: give the turn to somebody else for a while. */
+  private finishedAttack(): void {
+    this.attackCount++;
+    this.attackCooldown = 1.2 + this.rand() * 1.6;
+  }
+
   /** What to do once an attack has reached the player. */
   private afterAttack(outcome: AttackOutcome): void {
     const z = tuning.zombie;
@@ -603,6 +718,7 @@ export class Zombie {
     this.prevYaw = this.yaw;
     this.stateTime += dt;
     this.flinchTimer = Math.max(0, this.flinchTimer - dt);
+    this.attackCooldown = Math.max(0, this.attackCooldown - dt);
     const z = tuning.zombie;
     const r = tuning.reactions;
     toPlayer.subVectors(host.playerPosition, this.position).setY(0);
@@ -626,9 +742,15 @@ export class Zombie {
       case 'idle':
       case 'walk':
       case 'run': {
+        this.senses(dt, distToPlayer, yawToPlayer, host);
+        if ((this.state as ZombieState) === 'spot') break;
         ({ wantSpeed, wantYaw } = this.think(dt, distToPlayer, yawToPlayer, host));
         break;
       }
+      case 'spot':
+        wantYaw = yawToPlayer;
+        if (this.stateTime >= this.stateDuration) this.resumeDefault();
+        break;
       case 'windup':
         wantYaw = yawToPlayer;
         turnRate *= 0.6;
@@ -641,6 +763,7 @@ export class Zombie {
       case 'swing':
         if (!this.attackResolved && this.stateTime >= 0.12) {
           this.attackResolved = true;
+          this.finishedAttack();
           const facing = Math.abs(angleDiff(this.yaw, yawToPlayer));
           if (distToPlayer < z.attackRange + 0.45 && facing < MathUtils.degToRad(55)) {
             const outcome = host.attackPlayer(this, 'swing');
@@ -669,6 +792,7 @@ export class Zombie {
         const facing = Math.abs(angleDiff(this.yaw, yawToPlayer));
         if (!this.attackResolved && this.stateTime >= 0.08 && distToPlayer < tuning.grab.reach + 0.35 && facing < MathUtils.degToRad(50)) {
           this.attackResolved = true;
+          this.finishedAttack();
           this.afterAttack(host.attackPlayer(this, 'grab'));
           break;
         }
@@ -769,6 +893,7 @@ export class Zombie {
       case 'claw':
         if (!this.attackResolved && this.stateTime >= 0.1) {
           this.attackResolved = true;
+          this.finishedAttack();
           if (distToPlayer - BODY_LENGTH < z.crawlReach + 0.35) {
             const outcome = host.attackPlayer(this, 'claw');
             if (outcome === 'perfect' || outcome === 'parried') {
@@ -860,7 +985,14 @@ export class Zombie {
       }
       case 'walk':
       case 'hunt': {
-        if (dist < z.attackRange && Math.abs(angleDiff(this.yaw, yawToPlayer)) < 0.6) {
+        // 'walk' is the range dummy that just walks at you; 'hunt' is the real thing.
+        const practice = this.behavior === 'walk';
+        if (!practice && (!host.playerAlive || !this.aware)) return this.wander(dt);
+        const ai = tuning.ai;
+        const hasToken = practice || host.hasToken(this);
+        const sp = this.stats.speed;
+        // It's this zombie's turn and it is close enough: attack.
+        if (hasToken && (practice || this.attackCooldown <= 0) && dist < z.attackRange && Math.abs(angleDiff(this.yaw, yawToPlayer)) < 0.6) {
           // Both hands free: sometimes it lunges to grab instead of swinging.
           const grab = this.armsFree === 2 && !this.tool && this.rand() < tuning.grab.chance && host.canGrab(this);
           this.setState(grab ? 'grabWindup' : 'windup');
@@ -868,13 +1000,42 @@ export class Zombie {
           return { wantSpeed: 0, wantYaw: yawToPlayer };
         }
         if (this.behavior === 'hunt') {
-          if (this.state === 'walk' && dist > 6 && this.rand() < z.runChance * dt) this.setState('run', z.runDuration);
-          if (this.state === 'run' && (this.stateTime >= this.stateDuration || dist < 3)) this.setState('walk');
+          const runner = this.kind === 'runner';
+          const far = dist > (runner ? 3 : 6);
+          if (this.state === 'walk' && far && (hasToken || dist > ai.ringRadius + 4) && this.rand() < (runner ? 0.9 : z.runChance) * dt) {
+            this.setState('run', runner ? 2.6 : z.runDuration);
+          }
+          if (this.state === 'run' && (this.stateTime >= this.stateDuration || dist < (runner ? 2 : 3))) this.setState('walk');
         } else if (this.state !== 'walk') {
           this.setState('walk');
         }
-        if (dist < z.attackRange * 0.8) return { wantSpeed: 0, wantYaw: yawToPlayer };
-        return { wantSpeed: this.state === 'run' ? z.runSpeed : z.walkSpeed, wantYaw: yawToPlayer };
+        let speed = (this.state === 'run' ? z.runSpeed : z.walkSpeed) * sp;
+        // Not its turn: it goes to its waiting spot on the circle round you and shuffles there.
+        let goalX = host.playerPosition.x;
+        let goalZ = host.playerPosition.z;
+        if (!hasToken) {
+          const spot = host.waitingSpot(this);
+          if (spot && dist < ai.ringRadius + 7) {
+            goalX = spot.x;
+            goalZ = spot.z;
+            const toSpot = Math.hypot(goalX - this.position.x, goalZ - this.position.z);
+            if (toSpot < 0.5) return { wantSpeed: 0, wantYaw: yawToPlayer };
+            if (dist < ai.ringRadius + 2) speed = Math.min(speed, ai.circleSpeed * sp);
+          } else if (dist < ai.ringRadius) {
+            return { wantSpeed: 0, wantYaw: yawToPlayer };
+          }
+        } else if (dist < z.attackRange * 0.8) {
+          return { wantSpeed: 0, wantYaw: yawToPlayer };
+        }
+        // Straight there if nothing is in the way; otherwise round the obstacles.
+        let dx = goalX - this.position.x;
+        let dz = goalZ - this.position.z;
+        tmp.set(goalX, this.position.y, goalZ);
+        if (!host.lineClear(this.position, tmp) && host.steer(this.position, steerOut)) {
+          dx = steerOut.x - this.position.x;
+          dz = steerOut.z - this.position.z;
+        }
+        return { wantSpeed: speed, wantYaw: Math.atan2(-dx, -dz) };
       }
     }
   }
@@ -1010,6 +1171,23 @@ export class Zombie {
         legs(1.8, 1.3, 1);
         pose.hipsY = -0.06 + 0.06 * Math.abs(c);
         break;
+
+      case 'spot': {
+        // Stops, rears up and points: it has seen you.
+        const u = Math.min(1, t / 0.3);
+        j.spine = [(-hunch + 0.1) * (1 - u) + 0.05 * u, 0, 0];
+        j.neck = [-0.25 * u, 0, 0];
+        j.head = [-0.4 * u, 0, 0];
+        j.shoulderR = [2.9 * u, 0, -0.15];
+        j.elbowR = [0.1, 0, 0];
+        j.shoulderL = [0.3, 0, -0.1];
+        j.elbowL = [0.4, 0, 0];
+        legs(0, 0, 1);
+        j.hipL = [0.1, 0, -0.06];
+        j.hipR = [-0.1, 0, 0.06];
+        pose.hipsZ = 0.04 * u;
+        break;
+      }
 
       case 'windup':
         j.spine = [0.12, 0, 0];

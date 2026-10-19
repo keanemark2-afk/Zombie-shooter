@@ -309,7 +309,8 @@ body {
 }
 
 /* ---------- Menu ---------- */
-.menu {
+.menu,
+.death-screen {
   position: fixed;
   inset: 0;
   display: grid;
@@ -328,7 +329,8 @@ body {
   text-align: center;
 }
 
-.menu h1 {
+.menu h1,
+.death-screen h1 {
   margin: 0;
   font-family: Georgia, serif;
   font-size: 44px;
@@ -680,3 +682,148 @@ body {
 
 .banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 .banner.gore { color: #ff6a55; text-shadow: 0 0 12px rgba(255, 60, 40, 0.7), 0 2px 4px #000; }
+
+/* ---------- Phase 3: health, pickups, coins ---------- */
+.death-screen h1.death-title { color: #c0392b; }
+.death-summary { margin: 14px 0 20px; font-size: 16px; line-height: 1.7; color: #e8d9bf; }
+.death-screen { background: rgba(30, 0, 0, 0.6); }
+
+.danger-vignette {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(120, 0, 0, 0) 35%, rgba(170, 0, 0, 0.85) 100%);
+}
+
+.health-box {
+  position: absolute;
+  left: 28px;
+  bottom: 24px;
+  width: 260px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.health-label {
+  font-size: 12px;
+  letter-spacing: 0.25em;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.health-text {
+  margin-left: 6px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.health-bar {
+  position: relative;
+  height: 14px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  display: flex;
+}
+
+.health-fill {
+  height: 100%;
+  width: 100%;
+  background: #5fbf5a;
+  transition: width 0.15s;
+}
+
+.health-extra {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px solid rgba(255, 220, 120, 0.9);
+  background: rgba(255, 210, 90, 0.12);
+  pointer-events: none;
+}
+
+.health-box.danger .health-bar { animation: danger-pulse 0.7s ease-in-out infinite alternate; }
+
+@keyframes danger-pulse {
+  from { box-shadow: 0 0 0 rgba(255, 60, 40, 0); }
+  to { box-shadow: 0 0 12px rgba(255, 60, 40, 0.9); }
+}
+
+.heal-progress {
+  height: 4px;
+  margin-top: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  visibility: hidden;
+}
+
+.heal-progress div { height: 100%; width: 0; background: #9fe89a; }
+
+.heal-items {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.hi {
+  min-width: 22px;
+  padding: 1px 6px;
+  text-align: center;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.hi.g { color: #7fe06a; }
+.hi.r { color: #ff7a70; }
+.hi.y { color: #f0d860; }
+.hi.m { color: #c2f08a; }
+.hi.s { color: #9fd4e8; }
+.hi-key { margin-left: 4px; color: var(--text-dim); font-size: 11px; }
+
+.pickup-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+  min-height: 20px;
+}
+
+.feed-line { font-size: 13px; color: #cfe8c0; }
+.feed-line.bad { color: #ff9a8f; }
+.feed-line.info { color: #e8d9bf; }
+
+.coin-counter {
+  position: absolute;
+  right: 28px;
+  top: 52px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffd24a;
+  text-shadow: 0 1px 3px #000;
+}
+
+.coin-icon {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff2b0, #e0b43a 60%, #9a7418);
+  vertical-align: -1px;
+}
+
+.grenade-box {
+  position: absolute;
+  right: 28px;
+  bottom: 128px;
+  text-align: right;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  text-shadow: 0 1px 3px #000;
+}
+
+.grenade-box b { color: #fff; font-size: 15px; }

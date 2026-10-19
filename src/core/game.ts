@@ -18,10 +18,13 @@ import {
   type Intersection,
   type Object3D,
 } from 'three';
+import { Horde } from '../ai/horde';
 import { Sfx } from '../audio/sfx';
 import { FallingProp } from '../characters/handheld';
 import { isLimb, resolveShot, zoneGroup, type HitResult, type LimbSegment, type LimbZone, type PelletHit, type Zone } from '../combat/damage';
 import { blastFalloff, GrabStruggle, judgeParry, MELEE_NAMES, pickMeleeTarget, type MeleeMove } from '../combat/melee';
+import { rollDrop, type Drop } from '../combat/drops';
+import { herbEffect, PlayerHealth } from '../combat/health';
 import { blastPush, falloff, randomInCone } from '../combat/pellets';
 import { WEAPONS } from '../combat/weapons';
 import { padButtonName, PAD } from '../config/controls';
@@ -30,23 +33,29 @@ import { tuning } from '../config/tuning';
 import { showError } from '../debug/errorOverlay';
 import { FpsCounter } from '../debug/fpsCounter';
 import { TuningPanel } from '../debug/tuningPanel';
+import { isElite, type EnemyKind } from '../enemies/kinds';
 import { Zombie, type AttackKind, type AttackOutcome, type GrabRelease, type ZombieBehavior, type ZombieHost } from '../enemies/zombie';
 import { Effects } from '../fx/effects';
 import { GoreSystem } from '../fx/gore';
+import { Pickups, type Pickup } from '../fx/pickups';
+import { itemDef } from '../inventory/items';
+import { chooseHealItem, Supplies } from '../inventory/supplies';
+import { EliteSchedule, WaveDirector } from '../modes/waves';
 import { NO_INPUT, Player, type MeleePhase, type PlayerHost, type PlayerInput } from '../player/player';
 import { ShoulderCamera } from '../player/shoulderCamera';
 import { PostFx } from '../render/postFx';
+import { DeathScreen } from '../ui/deathScreen';
 import { Hud, type RangeStats } from '../ui/hud';
 import { Menu, type MenuChoice } from '../ui/menu';
 import type { Collider } from '../world/colliders';
 import { colliderOutlines } from '../world/colliders';
-import type { LevelId } from '../world/level';
 import { rangeZ } from '../world/range';
 import { World } from '../world/world';
 import { FlyCamera } from './flyCamera';
 import { GamepadReader } from './gamepad';
 import { Input } from './input';
 import { FixedStepClock } from './loop';
+import { levelFor, type GameMode } from './modes';
 import { PlayerInputReader } from './playerInput';
 
 const ZONE_NAMES: Record<Zone, string> = {
@@ -91,6 +100,12 @@ interface Rocket {
   pos: Vector3;
   dir: Vector3;
   travelled: number;
+}
+
+interface Crate {
+  mesh: Object3D;
+  collider: Collider | null;
+  broken: boolean;
 }
 
 interface Barrel {
@@ -156,6 +171,13 @@ export class Game {
   private readonly sfx = new Sfx();
   private readonly hud = new Hud();
   private readonly menu = new Menu();
+  private readonly deathScreen = new DeathScreen();
+  private readonly horde = new Horde();
+  private readonly pickups: Pickups;
+  readonly health = new PlayerHealth(tuning.health.max);
+  readonly supplies = new Supplies();
+  private readonly waves = new WaveDirector();
+  private readonly elites = new EliteSchedule();
   private readonly flyCamera: FlyCamera;
   private readonly raycaster = new Raycaster();
   private readonly fallingProps: FallingProp[] = [];
@@ -189,8 +211,23 @@ export class Game {
   private lastWiggle = 0;
   private readonly rockets: Rocket[] = [];
   private barrels: Barrel[] = [];
+  private crates: Crate[] = [];
+  /** The healing item being used right now. */
+  private healingItem: { id: number; kind: 'herb' | 'spray'; key: string } | null = null;
+  private heartbeatTimer = 0;
+  private deathTimer = -1;
+  private noRoomTimer = 0;
+  private startedAt = 0;
+  /** Kills in this run (drives elites, and the death summary). */
+  runKills = 0;
+  runCoinsEarned = 0;
+  damageTaken = 0;
 
-  mode: LevelId | null = null;
+  /** What is being played: Survival, Score Attack or the practice range. */
+  modeId: GameMode | null = null;
+  get mode(): 'village' | 'range' | null {
+    return this.modeId ? levelFor(this.modeId) : null;
+  }
   paused = true;
   gameTime = 0;
   frameCount = 0;
@@ -213,6 +250,7 @@ export class Game {
     this.fx = new Effects(this.scene);
     this.fx.onShellLand = (pos, kind) => this.sfx.shellLand(pos, kind);
     this.gore = new GoreSystem(this.scene, this.fx, (origin, dir, max) => this.world.raycast(origin, dir, max));
+    this.pickups = new Pickups(this.scene);
     this.player = new Player();
     this.scene.add(this.player.object);
     this.cam = new ShoulderCamera(this.camera);
@@ -230,7 +268,15 @@ export class Game {
       zombies: this.zombies,
       voice: this.sfx,
       attackPlayer: (z, kind) => this.attackPlayer(z, kind),
-      canGrab: () => !this.player.busy && !this.player.invulnerable && this.grabCooldown <= 0 && this.grabbedBy === null && this.player.stunTime <= 0,
+      canGrab: () => !this.player.busy && !this.player.invulnerable && this.grabCooldown <= 0 && this.grabbedBy === null && this.player.stunTime <= 0 && !this.player.dead,
+      playerAlive: true,
+      hasToken: (z) => this.horde.hasToken(z.id),
+      waitingSpot: (z) => this.horde.waitingSpot(z.id),
+      lineClear: (a, b) => this.horde.lineClear(a, b),
+      steer: (from, out) => this.horde.steer(from, out),
+      spotted: (z) => {
+        this.horde.alertAround(this.zombies, z.position, tuning.ai.alertRadius);
+      },
       dropProp: (prop, velocity, spin) => {
         this.scene.add(prop);
         const fp = new FallingProp(prop);
@@ -259,7 +305,15 @@ export class Game {
       footstep: (_pos, sprinting) => this.sfx.footstep(sprinting),
       knifeSlash: () => this.knifeSlash(),
       meleeEvent: (move, phase) => this.meleeEvent(move, phase),
+      healFinished: () => this.healFinished(),
+      throwGrenade: () => {},
     };
+    this.deathScreen.onChoose = (choice) => {
+      this.deathScreen.hide();
+      if (choice === 'retry' && this.modeId) this.startMode(this.modeId);
+      else this.goToMenu();
+    };
+    this.supplies.onChange = () => {};
 
     this.menu.onChoose = (choice) => this.choose(choice);
     document.addEventListener('pointerlockchange', () => this.onPointerLockChange());
@@ -292,14 +346,27 @@ export class Game {
 
   private choose(choice: MenuChoice): void {
     this.sfx.unlock();
-    if (choice === 'resume' && this.mode) {
+    if (choice === 'resume' && this.modeId) {
       this.resume();
       return;
     }
     if (choice !== 'resume') this.startMode(choice);
   }
 
-  startMode(id: LevelId): void {
+  /** Leaves the current run and shows the title menu. */
+  private goToMenu(): void {
+    this.deathScreen.hide();
+    this.clearRun();
+    this.modeId = null;
+    this.paused = true;
+    this.player.object.visible = false;
+    this.hud.visible = false;
+    this.world.setLevel('village');
+    this.menu.show(false);
+  }
+
+  /** Clears everything left over from a run. */
+  private clearRun(): void {
     for (const z of this.zombies) this.removeZombie(z);
     this.zombies.length = 0;
     for (const p of this.fallingProps) disposeObject(p.object);
@@ -307,15 +374,37 @@ export class Game {
     for (const r of this.rockets) disposeObject(r.mesh);
     this.rockets.length = 0;
     this.gore.clear();
+    this.pickups.clear();
     this.restoreBarrels();
-    this.world.setLevel(id);
-    this.mode = id;
+    this.restoreCrates();
+    this.horde.reset();
+  }
+
+  startMode(id: GameMode): void {
+    this.deathScreen.hide();
+    this.clearRun();
+    this.world.setLevel(levelFor(id));
+    this.modeId = id;
     this.setupBarrels();
+    this.setupCrates();
+    this.horde.setObstacles(this.world.level.colliders);
+    const practice = id === 'range';
+    // The practice range carries every gun; real runs start with just the pistol.
+    if (practice) for (const w of WEAPONS) this.player.carried.add(w.id);
     const spawn = this.world.level.playerSpawn;
     this.player.spawn(spawn.x, spawn.z, spawn.yaw, this.world);
     this.player.object.visible = true;
     this.cam.yaw = spawn.yaw;
     this.cam.pitch = -0.05;
+    this.health.reset(tuning.health.max);
+    this.supplies.clear();
+    this.healingItem = null;
+    this.deathTimer = -1;
+    this.runKills = 0;
+    this.runCoinsEarned = 0;
+    this.damageTaken = 0;
+    this.startedAt = this.gameTime;
+    this.elites.reset();
     Object.assign(this.stats, { shots: 0, hits: 0, headshots: 0, kills: 0, lastHit: '' });
     this.respawnTimer = 0;
     this.meleeOption = null;
@@ -329,8 +418,13 @@ export class Game {
     }
     this.dummySlots.clear();
     this.lastWeapon = -1;
-    if (id === 'range') this.spawnMissingDummies();
-    else for (let i = 0; i < tuning.village.zombieCount; i++) this.spawnVillageZombie();
+    if (practice) {
+      this.spawnMissingDummies();
+    } else {
+      this.player.setLoadout({ pistol: 40 }, 'pistol');
+      this.supplies.addNew('herb', 'G');
+      this.waves.begin(1, tuning.waves.startDelay);
+    }
     this.resume();
   }
 
@@ -394,19 +488,62 @@ export class Game {
     this.lastDummyDistance = d;
   }
 
-  private spawnVillageZombie(): void {
+  /** A zombie walks in through one of the gates, a far one by preference. */
+  private spawnWaveZombie(kind: EnemyKind): Zombie {
     const spawns = this.world.level.enemySpawns;
-    const s = spawns[Math.floor(Math.random() * spawns.length)];
-    const z = new Zombie(this.zombieSeed++, s.x + (Math.random() - 0.5) * 2, s.z + (Math.random() - 0.5) * 2, s.yaw + Math.PI, 'hunt', {
-      holdsTool: Math.random() < tuning.zombie.weaponChance,
+    const p = this.player.position;
+    const far = [...spawns].sort((a, b) => Math.hypot(b.x - p.x, b.z - p.z) - Math.hypot(a.x - p.x, a.z - p.z));
+    let x = 0;
+    let z = 0;
+    let yaw = 0;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const s = far[Math.floor(Math.random() * Math.min(2, far.length))];
+      const outX = Math.sin(s.yaw);
+      const outZ = Math.cos(s.yaw);
+      const side = (Math.random() - 0.5) * 3.2;
+      const depth = Math.random() * 2.5;
+      x = s.x + outZ * side + outX * depth;
+      z = s.z - outX * side + outZ * depth;
+      yaw = s.yaw + Math.PI;
+      if (this.zombies.every((o) => !o.alive || Math.hypot(o.position.x - x, o.position.z - z) > 1.1)) break;
+    }
+    const zombie = new Zombie(this.zombieSeed++, x, z, yaw, 'hunt', {
+      holdsTool: kind === 'armed' || (kind === 'shambler' && Math.random() < tuning.zombie.weaponChance),
+      kind,
+      aware: true,
     });
-    this.addZombie(z);
+    this.addZombie(zombie);
+    return zombie;
   }
 
   private addZombie(z: Zombie): void {
     if (this.hitboxView) z.rig.setHitboxView(true);
+    z.onDeath = (dead) => this.onZombieDied(dead);
     this.zombies.push(z);
     this.scene.add(z.object);
+  }
+
+  /** A zombie has died (any way at all): count it and see what it drops. */
+  private onZombieDied(z: Zombie): void {
+    this.runKills++;
+    this.stats.kills++;
+    if (this.modeId === 'range') return;
+    const rolls = isElite(z.kind) ? 4 : 1;
+    for (let i = 0; i < rolls; i++) {
+      const at = z.chestPosition(new Vector3());
+      at.x += (Math.random() - 0.5) * 0.6;
+      at.z += (Math.random() - 0.5) * 0.6;
+      this.dropAt(at, z.stats.coins, isElite(z.kind) ? 6 : 1, tuning.drops.chance);
+    }
+  }
+
+  /** Rolls the drop rules and, if something drops, puts it on the ground. */
+  private dropAt(at: Vector3, coinScale: number, luck: number, chance: number): void {
+    const guns = this.player.guns
+      .filter((g) => this.player.has(g.def.id))
+      .map((g) => ({ weapon: g.def.id as string, reserve: g.reserve, maxReserve: g.stats.spareAmmo }));
+    const drop: Drop | null = rollDrop({ guns, healItems: this.supplies.healItems, coinScale, luck, grenades: false }, { ...tuning.drops, chance }, Math.random);
+    if (drop) this.pickups.spawn(drop, at, this.world.groundHeight(at.x, at.z));
   }
 
   private removeZombie(z: Zombie): void {
@@ -450,16 +587,6 @@ export class Game {
       } else {
         this.respawnTimer = 0;
       }
-    } else if (this.mode === 'village') {
-      if (alive.length < tuning.village.zombieCount) {
-        this.respawnTimer += dt;
-        if (this.respawnTimer >= tuning.village.respawnDelay) {
-          this.respawnTimer = 0;
-          this.spawnVillageZombie();
-        }
-      } else {
-        this.respawnTimer = 0;
-      }
     }
   }
 
@@ -494,11 +621,54 @@ export class Game {
       this.startGrab(z);
       return 'grabbed';
     }
-    p.hurt(z.position, kind === 'claw' ? tuning.zombie.attackPush * 0.6 : tuning.zombie.attackPush);
+    const base = kind === 'claw' ? tuning.zombie.clawDamage : tuning.zombie.swingDamage;
+    this.damagePlayer(base * z.stats.damage, z.position, kind === 'claw' ? tuning.zombie.attackPush * 0.6 : tuning.zombie.attackPush);
+    return 'hit';
+  }
+
+  /** Hurts the player (nothing happens to your health on the practice range). */
+  private damagePlayer(amount: number, from: Vector3, push = tuning.zombie.attackPush): void {
+    const p = this.player;
+    if (p.dead) return;
+    if (this.modeId !== 'range') {
+      const done = this.health.damage(amount, tuning.health.graceTime);
+      if (done <= 0) return;
+      this.damageTaken += done;
+    } else if (this.health.grace > 0) {
+      return;
+    } else {
+      this.health.grace = tuning.health.graceTime;
+    }
+    p.hurt(from, push);
+    this.healingItem = null;
     this.cam.shake(tuning.feel.shakeHurt);
     this.hud.hurtFlash();
     this.sfx.playerHurt();
-    return 'hit';
+    if (this.health.dead) this.playerDied();
+  }
+
+  private playerDied(): void {
+    this.player.die();
+    if (this.grabbedBy) this.endGrab();
+    this.sfx.playerDeath();
+    this.deathTimer = tuning.health.deathScreenDelay;
+    this.hud.setScope(false);
+  }
+
+  private showDeathScreen(): void {
+    const mins = Math.floor((this.gameTime - this.startedAt) / 60);
+    const secs = Math.floor((this.gameTime - this.startedAt) % 60);
+    const lines = [
+      `Wave <b>${this.waves.wave}</b> reached`,
+      `Zombies killed: <b>${this.runKills}</b>`,
+      `Coins earned: <b>${this.runCoinsEarned.toLocaleString('en-US')}</b>`,
+      `Time survived: <b>${mins}:${String(secs).padStart(2, '0')}</b>`,
+    ];
+    const padType = this.pad.connected && this.controls.lastDevice === 'gamepad' ? this.pad.type : null;
+    const hint = padType ? `${padButtonName(PAD.south, padType)}: try again   ${padButtonName(PAD.east, padType)}: main menu` : 'Enter or R: try again   Esc: main menu';
+    this.releasingMouse = true;
+    this.input.unlockPointer();
+    this.deathScreen.show(lines, hint);
   }
 
   private startGrab(z: Zombie): void {
@@ -564,10 +734,8 @@ export class Game {
       this.sfx.kick(z.chestPosition(tmp));
       this.stats.lastHit = 'BROKE FREE · zombie stunned - kick it!';
     } else {
-      p.hurt(z.position, tuning.zombie.attackPush * 1.3);
-      this.hud.hurtFlash();
+      this.damagePlayer(tuning.zombie.biteDamage * z.stats.damage, z.position, tuning.zombie.attackPush * 1.3);
       this.sfx.bite(z.headPosition(tmp));
-      this.cam.shake(tuning.feel.shakeHurt);
       this.fx.blood(p.position.clone().setY(p.position.y + 1.5), dir.clone().negate(), 0.8 * bloodScale(), p.position.y);
       this.stats.lastHit = 'BITTEN';
     }
@@ -579,6 +747,177 @@ export class Game {
     this.struggle = null;
     this.player.grabbed = false;
     this.grabCooldown = tuning.grab.cooldown;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Healing, pickups and crates
+
+  /** Starts using a healing item if you have one worth using. */
+  private tryHeal(): void {
+    const p = this.player;
+    if (p.dead || p.busy || p.healing || p.stunTime > 0 || this.health.dead) return;
+    const item = chooseHealItem(this.supplies.items, this.health.fraction);
+    if (!item) {
+      this.hud.addFeed('Nothing to heal with', 'bad');
+      return;
+    }
+    const effect = item.kind === 'spray' ? { heal: 'full' as const, raiseMax: tuning.health.sprayRaisesMax } : herbEffect(item.key);
+    if (!effect) return;
+    if (this.health.fraction >= 1 && effect.raiseMax <= 0) {
+      this.hud.addFeed('Your health is full', 'info');
+      return;
+    }
+    this.healingItem = { id: item.id, kind: item.kind === 'spray' ? 'spray' : 'herb', key: item.key };
+    p.startHeal(tuning.health.healTime);
+    this.sfx.heal(item.kind === 'spray');
+  }
+
+  /** The healing animation finished: use up the item and restore the health. */
+  private healFinished(): void {
+    const used = this.healingItem;
+    this.healingItem = null;
+    if (!used) return;
+    const effect = used.kind === 'spray' ? { heal: 'full' as const, raiseMax: tuning.health.sprayRaisesMax } : herbEffect(used.key);
+    if (!effect) return;
+    const before = this.health.current;
+    this.health.apply(effect);
+    this.supplies.remove(used.id);
+    this.sfx.healed();
+    const gained = Math.round(this.health.current - before);
+    this.hud.addFeed(gained > 0 ? `Health restored +${gained}` : 'Maximum health raised', 'good');
+  }
+
+  /** The player reached a pickup. Returns true if it was taken (false = no room). */
+  private collectPickup(pk: Pickup): boolean {
+    const d = pk.drop;
+    const p = this.player;
+    switch (d.type) {
+      case 'coins':
+        this.supplies.coins += d.amount;
+        this.runCoinsEarned += d.amount;
+        this.hud.addFeed(`+${d.amount.toLocaleString('en-US')} coins`);
+        this.sfx.pickup('coins');
+        return true;
+      case 'ammo': {
+        const gun = p.guns.find((g) => g.def.id === d.weapon);
+        if (!gun || !p.has(gun.def.id)) return true; // no longer carrying that gun: the box is just wasted
+        const max = gun.stats.spareAmmo;
+        if (gun.reserve >= max) return false; // full: leave it for later
+        const added = Math.min(d.amount, max - gun.reserve);
+        gun.reserve += added;
+        this.hud.addFeed(`+${added} ${gun.def.name} ammo`);
+        this.sfx.pickup('ammo');
+        return true;
+      }
+      case 'herb':
+      case 'spray':
+      case 'treasure':
+      case 'grenade': {
+        const kind = d.type === 'herb' ? 'herb' : d.type === 'spray' ? 'spray' : d.type === 'treasure' ? 'treasure' : 'grenade';
+        const key = d.type === 'herb' ? d.herb : d.type === 'spray' ? 'spray' : d.type === 'treasure' ? d.treasure : d.grenade;
+        const item = this.supplies.addNew(kind, key);
+        if (!item) {
+          if (this.noRoomTimer <= 0) {
+            this.hud.addFeed('No room in your case', 'bad');
+            this.noRoomTimer = 2;
+          }
+          return false;
+        }
+        this.hud.addFeed(`${itemDef(item).name}`);
+        this.sfx.pickup(d.type === 'treasure' ? 'treasure' : d.type === 'grenade' ? 'grenade' : d.type === 'spray' ? 'spray' : 'herb');
+        return true;
+      }
+      case 'orb':
+        return true;
+    }
+  }
+
+  private setupCrates(): void {
+    this.crates = [];
+    this.world.level.root.traverse((o) => {
+      if (!o.userData.crate) return;
+      this.crates.push({ mesh: o, collider: (o.userData.collider as Collider | undefined) ?? null, broken: false });
+    });
+  }
+
+  private restoreCrates(): void {
+    for (const c of this.crates) {
+      c.mesh.visible = true;
+      c.broken = false;
+      if (c.collider && !this.world.level.colliders.includes(c.collider)) this.world.level.colliders.push(c.collider);
+    }
+    this.crates = [];
+  }
+
+  private crateFor(obj: Object3D): Crate | null {
+    return this.crates.find((c) => c.mesh === obj && !c.broken) ?? null;
+  }
+
+  /** A crate smashes: splinters, a crash, maybe something inside, and whatever sat on top falls too. */
+  private breakCrate(c: Crate): void {
+    if (c.broken) return;
+    c.broken = true;
+    c.mesh.visible = false;
+    this.world.disabled.add(c.mesh);
+    const cols = this.world.level.colliders;
+    if (c.collider && cols.includes(c.collider)) cols.splice(cols.indexOf(c.collider), 1);
+    this.horde.refreshObstacles();
+    const at = c.mesh.getWorldPosition(new Vector3());
+    this.fx.surfaceImpact(at, UP, 'wood', 3);
+    this.fx.surfaceImpact(at.clone().add(tmp.set(0.2, 0.2, 0)), UP, 'wood', 2);
+    this.sfx.crateBreak(at);
+    if (this.modeId !== 'range') this.dropAt(at, 1, 1.5, tuning.drops.crateChance);
+    // Anything stacked on top comes down with it.
+    for (const other of this.crates) {
+      if (other.broken || other === c) continue;
+      const o = other.mesh.getWorldPosition(new Vector3());
+      if (o.y > at.y + 0.3 && Math.hypot(o.x - at.x, o.z - at.z) < 0.9) this.breakCrate(other);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Survival: waves
+
+  private survivalTick(dt: number): void {
+    if (this.modeId !== 'survival' && this.modeId !== 'score') return;
+    const alive = this.zombies.filter((z) => z.alive).length;
+    const u = this.waves.update(dt, alive);
+    if (u.started) {
+      this.hud.flashBanner(`WAVE ${this.waves.wave}`, 'gore');
+      this.sfx.waveStart();
+    }
+    for (const kind of u.spawn) this.spawnWaveZombie(kind);
+    if (u.cleared) {
+      const bonus = tuning.waves.bonusPerWave * this.waves.wave;
+      this.supplies.coins += bonus;
+      this.runCoinsEarned += bonus;
+      this.hud.flashBanner('WAVE CLEARED');
+      this.hud.addFeed(`Wave cleared! +${bonus.toLocaleString('en-US')} coins`);
+      this.sfx.waveClear();
+    }
+    const elite = this.elites.check(this.runKills);
+    if (elite) {
+      this.spawnWaveZombie(elite);
+      this.hud.flashBanner('SOMETHING HEAVY IS COMING', 'gore');
+      this.sfx.eliteSting();
+    }
+    // Until the Trader opens, the break between waves is short.
+    if (this.waves.state === 'intermission' && !this.hasTrader() && this.waves.timer > 8) this.waves.timer = 8;
+  }
+
+  /** Is the Trader's stall open for business? (Added in Phase 5.) */
+  private hasTrader(): boolean {
+    return false;
+  }
+
+  private survivalInfo(): string {
+    const w = this.waves;
+    const alive = this.zombies.filter((z) => z.alive).length;
+    let status: string;
+    if (w.state === 'countdown') status = `Wave ${w.wave} in ${Math.ceil(w.timer)}`;
+    else if (w.state === 'intermission') status = `Wave ${w.wave} cleared &middot; next wave in ${Math.ceil(w.timer)}`;
+    else status = `${w.remaining(alive)} zombies left`;
+    return `<b>WAVE ${w.wave}</b> &middot; ${status} &middot; Kills ${this.runKills}` + (this.stats.lastHit ? `<br><span class="last-hit">${this.stats.lastHit}</span>` : '');
   }
 
   // ---------------------------------------------------------------------------
@@ -654,7 +993,6 @@ export class Game {
     const land = (damage: number, zone: Zone, push: number): HitResult => {
       const result = resolveShot([{ zone, damage, knockback: push }], z.targetState, 1, tuning);
       z.applyHit(result, dir.clone(), this.sfx, this.zombieHost);
-      if (result.killed) this.stats.kills++;
       return result;
     };
     const feel = () => {
@@ -674,7 +1012,6 @@ export class Game {
         if (to.length() > m.kickRadius) continue;
         const res = resolveShot([{ zone: 'torso', damage: m.kickSplashDamage, knockback: 5 }], other.targetState, 1, tuning);
         other.applyHit(res, to.normalize(), this.sfx, this.zombieHost);
-        if (res.killed) this.stats.kills++;
         swept++;
       }
       this.stats.lastHit = `ROUNDHOUSE KICK · ${Math.round(r.damage)} damage · ${r.killed ? 'KILLED' : 'KNOCKED DOWN'}${swept ? ` (+${swept} more knocked down)` : ''}`;
@@ -690,7 +1027,6 @@ export class Game {
       // Head first into the ground. Damage now; it lands properly at "release".
       const r = resolveShot([{ zone: 'torso', damage: m.suplexDamage, knockback: 0 }], { ...z.targetState, downed: true }, 1, tuning);
       z.health = r.healthAfter;
-      if (r.killed) this.stats.kills++;
       const head = z.headPosition(tmp);
       head.y = Math.max(head.y, this.world.groundHeight(head.x, head.z) + 0.1);
       this.sfx.slam(head);
@@ -773,7 +1109,6 @@ export class Game {
       this.sfx.knifeHit(c);
       this.fx.blood(c, to.normalize(), 0.7 * bloodScale(), this.world.groundHeight(c.x, c.z));
       this.hud.hitMarker(zoneGroup(zone), result.killed, tuning.feel.hitMarkerTime);
-      if (result.killed) this.stats.kills++;
       this.stats.lastHit = `KNIFE · ${Math.round(result.damage)} damage · ${result.killed ? 'KILLED' : result.reaction === 'none' ? 'cut' : 'flinched'}`;
       hits++;
     }
@@ -885,6 +1220,8 @@ export class Game {
         boomAt = wall.point.clone().addScaledVector(wall.normal, 0.15);
         const barrel = this.barrelFor(wall.object);
         if (barrel && !barrel.exploded) barrel.fuse = 0;
+        const crate = this.crateFor(wall.object);
+        if (crate) this.breakCrate(crate);
       } else {
         r.pos.addScaledVector(r.dir, step);
         r.travelled += step;
@@ -950,9 +1287,13 @@ export class Game {
       for (const s of result.severed) this.tearOff(z, s.zone, s.segment, dir, 1.6);
       if (result.killed) killed++;
     }
-    this.stats.kills += killed;
     if (killed) this.stats.lastHit = `EXPLOSION · ${killed} killed`;
 
+    // Crates close to the blast are smashed.
+    for (const c of this.crates) {
+      if (c.broken) continue;
+      if (c.mesh.getWorldPosition(tmp2).distanceTo(at) < e.radius * 0.6) this.breakCrate(c);
+    }
     // Nearby barrels catch the blast and go off a moment later.
     for (const b of this.barrels) {
       if (b.exploded || b.fuse >= 0) continue;
@@ -960,8 +1301,8 @@ export class Game {
     }
     // Too close for comfort: knocked back (player health arrives in Phase 3).
     if (playerDist < e.radius * 0.8 && !this.player.invulnerable) {
-      this.player.hurt(at, e.playerPush * (1 - playerDist / (e.radius * 0.8)));
-      this.hud.hurtFlash();
+      const near = 1 - playerDist / (e.radius * 0.8);
+      this.damagePlayer(e.playerDamage * near, at, e.playerPush * near);
     }
   }
 
@@ -1047,6 +1388,8 @@ export class Game {
       return;
     }
     const gun = this.player.stats;
+    // Gunfire carries: every zombie in earshot comes looking.
+    this.horde.alertAround(this.zombies, this.player.position, tuning.ai.gunshotRange);
     const aim = this.computeAim();
     this.player.muzzleWorld(muzzlePos);
     const scoped = this.player.scoped;
@@ -1107,6 +1450,8 @@ export class Game {
       if (!stopped && wall) {
         const barrel = this.barrelFor(wall.object);
         if (barrel && !barrel.exploded) barrel.fuse = 0;
+        const crate = this.crateFor(wall.object);
+        if (crate) this.breakCrate(crate);
         this.fx.surfaceImpact(wall.point, wall.normal, wall.surface, shotgun ? 0.4 : 1);
         if (!wallSound) this.sfx.impactSurface(wall.surface, wall.point);
         wallSound = true;
@@ -1172,7 +1517,6 @@ export class Game {
             : f.hitStopBody;
       this.hitStop = Math.max(this.hitStop, stop);
       if (group === 'head') headHit = true;
-      if (result.killed) this.stats.kills++;
     }
     if (summary) {
       const others = knockedDown - (summary.reaction === 'knockdown' || summary.killed ? 1 : 0);
@@ -1190,7 +1534,7 @@ export class Game {
 
   private readonly frame = (now: number): void => {
     requestAnimationFrame(this.frame);
-    const dt = this.lastFrameTime ? Math.min((now - this.lastFrameTime) / 1000, 0.25) : 1 / 60;
+    const dt = this.lastFrameTime ? Math.min((now - this.lastFrameTime) / 1000, 1) : 1 / 60;
     this.lastFrameTime = now;
     try {
       this.renderer.info.reset();
@@ -1238,19 +1582,32 @@ export class Game {
     this.gameTime += dt;
     this.tickCount++;
     this.grabCooldown = Math.max(0, this.grabCooldown - dt);
-    const input: PlayerInput = this.freeCam && !this.freeCamControls ? { ...NO_INPUT } : this.controls.take();
+    this.noRoomTimer = Math.max(0, this.noRoomTimer - dt);
+    const taken = this.controls.take();
+    const input: PlayerInput = (this.freeCam && !this.freeCamControls) || this.player.dead ? { ...NO_INPUT } : taken;
+    this.player.infiniteAmmo = this.modeId === 'range' ? tuning.weapons.infiniteAmmo : tuning.weapons.cheatInfiniteAmmo;
+    this.zombieHost.playerAlive = !this.player.dead;
+    this.health.tick(dt);
+    this.horde.update(dt, this.zombies, { position: this.player.position, velocity: this.player.velocity, alive: !this.player.dead });
     for (const z of this.zombies) z.update(dt, this.zombieHost);
+    this.survivalTick(dt);
 
     if (this.grabbedBy) {
       this.tickGrab(dt, input);
-    } else {
+    } else if (!this.player.dead) {
       this.computeMeleeOption();
       if (input.meleePressed && this.meleeOption && !this.player.busy && this.player.stunTime <= 0) {
         this.startMelee();
         input.sprintPressed = false;
       }
+      if (input.healPressed) this.tryHeal();
     }
     this.player.tick(dt, input, this.cam, this.world, this.playerHost);
+    this.keepInArena();
+    // A heal that was cut short (the player was hit) gives the item back.
+    if (this.healingItem && !this.player.healing) this.healingItem = null;
+    this.pickups.update(dt, this.player.position, (x, z) => this.world.groundHeight(x, z), (pk) => (this.player.dead ? false : this.collectPickup(pk)));
+    this.tickHealthEffects(dt);
     this.updateCarry();
     this.updateRockets(dt);
     this.updateBarrels(dt);
@@ -1259,6 +1616,32 @@ export class Game {
     this.fx.update(dt, ground);
     this.gore.update(dt, ground);
     this.manageZombies(dt);
+  }
+
+  /** Keeps the player inside the arena (the level can set bounds). */
+  private keepInArena(): void {
+    const b = this.world.level.bounds;
+    if (!b) return;
+    const p = this.player.position;
+    p.x = MathUtils.clamp(p.x, b.minX, b.maxX);
+    p.z = MathUtils.clamp(p.z, b.minZ, b.maxZ);
+  }
+
+  /** Heartbeat and the death countdown. */
+  private tickHealthEffects(dt: number): void {
+    if (this.modeId === null || this.modeId === 'range') return;
+    if (this.health.inDanger(tuning.health.dangerLevel)) {
+      this.heartbeatTimer -= dt;
+      if (this.heartbeatTimer <= 0) {
+        const worry = 1 - this.health.fraction / Math.max(0.01, tuning.health.dangerLevel);
+        this.heartbeatTimer = 1.0 - 0.45 * Math.min(1, worry);
+        this.sfx.heartbeat(Math.min(1, 0.4 + worry));
+      }
+    }
+    if (this.deathTimer >= 0) {
+      this.deathTimer -= dt;
+      if (this.deathTimer < 0) this.showDeathScreen();
+    }
   }
 
   private renderFrame(dt: number, alpha: number, playing: boolean): void {
@@ -1310,15 +1693,22 @@ export class Game {
       }
       const g = p.gun;
       const reload = g.reloading ? (g.def.reload === 'shells' ? g.ammo / ps.capacity : g.reloadProgress) : null;
-      this.hud.setAmmo(g.ammo, tuning.weapons.infiniteAmmo ? null : g.reserve, reload);
+      this.hud.setAmmo(g.ammo, p.infiniteAmmo ? null : g.reserve, reload);
       this.hud.setWeaponName(g.def.name);
       this.hud.setKnife(p.knife.condition);
       if (p.selected !== this.lastWeapon || p.switching) {
         this.lastWeapon = p.selected;
-        this.hud.showWeapons(WEAPONS.map((w) => ({ slot: w.slot, name: w.name })), p.selected);
+        const list = WEAPONS.filter((w) => p.has(w.id));
+        this.hud.showWeapons(
+          list.map((w) => ({ slot: w.slot, name: w.name })),
+          list.findIndex((w) => w.id === p.guns[p.selected].def.id),
+        );
       }
       this.updatePrompts(playing);
-      this.hud.setStats(this.mode === 'range' ? this.stats : null);
+      const live = this.modeId === 'survival' || this.modeId === 'score';
+      if (live) this.hud.setTopInfo(this.survivalInfo());
+      else this.hud.setStats(this.mode === 'range' ? this.stats : null);
+      this.updateHealthHud(live);
       const padName = this.pad.connected ? (this.pad.type === 'playstation' ? 'Options' : 'Menu') : null;
       this.hud.setHint(this.controls.lastDevice === 'gamepad' && padName ? `${padName}: menu & controls` : 'Esc: menu & controls  ·  F1: tuning');
       this.hud.update(dt);
@@ -1330,6 +1720,28 @@ export class Game {
     this.applyGraphicsTuning();
     this.post.render(Math.min(dt, 0.1));
     this.fps.frame(dt);
+  }
+
+  /** The health gauge, healing items, coins and the danger glow. */
+  private updateHealthHud(live: boolean): void {
+    const h = this.health;
+    const p = this.player;
+    this.hud.setHealth(h.current, h.max, tuning.health.max, h.inDanger(tuning.health.dangerLevel), p.healing ? 1 - p.healTime / p.healTotal : null, live);
+    const danger = live && h.inDanger(tuning.health.dangerLevel) ? 1 - h.fraction / Math.max(0.01, tuning.health.dangerLevel) : 0;
+    this.hud.setDanger(Math.min(1, danger), 0.5 + 0.5 * Math.sin(this.gameTime * 7));
+    const herbs = this.supplies.items.filter((it) => it.kind === 'herb');
+    const padType = this.pad.connected && this.controls.lastDevice === 'gamepad' ? this.pad.type : null;
+    this.hud.setHealItems(
+      {
+        g: herbs.filter((i) => i.key === 'G').length,
+        r: herbs.filter((i) => i.key === 'R').length,
+        y: herbs.filter((i) => i.key === 'Y').length,
+        mixed: herbs.filter((i) => i.key.length > 1).length,
+        spray: this.supplies.count('spray'),
+      },
+      padType ? padButtonName(PAD.north, padType) : 'H',
+    );
+    this.hud.setCoins(live ? this.supplies.coins : null);
   }
 
   /** The melee prompt over a stunned zombie, and the break-free bar while grabbed. */
@@ -1377,12 +1789,19 @@ export class Game {
       if (this.paused && this.mode) this.resume();
       else this.pause();
     }
-    if (this.menu.visible && this.menu.settingsOpen) {
+    if (this.deathScreen.visible) {
+      if (this.pad.wasPressed(PAD.south) || this.input.wasPressed('Enter') || this.input.wasPressed('KeyR')) {
+        this.deathScreen.hide();
+        if (this.modeId) this.startMode(this.modeId);
+      } else if (this.pad.wasPressed(PAD.east) || this.input.wasPressed('Escape')) {
+        this.goToMenu();
+      }
+    } else if (this.menu.visible && this.menu.settingsOpen) {
       if (this.pad.wasPressed(PAD.east)) this.menu.closeSettings();
     } else if (this.menu.visible) {
-      if (this.pad.wasPressed(PAD.south)) this.choose(this.paused && this.mode ? 'resume' : 'range');
+      if (this.pad.wasPressed(PAD.south)) this.choose(this.paused && this.mode ? 'resume' : 'survival');
       if (this.pad.wasPressed(PAD.west)) this.choose('range');
-      if (this.pad.wasPressed(PAD.north)) this.choose('village');
+      if (this.pad.wasPressed(PAD.north)) this.choose('survival');
     }
   }
 
@@ -1489,9 +1908,69 @@ export class Game {
     return true;
   }
 
+  /** For automated tests: puts a zombie `distance` metres in front of the player, facing them. Returns its id. */
+  debugSpawn(kind: EnemyKind, distance: number, aware: boolean, side = 0): number {
+    const f = this.player.forward(new Vector3());
+    const x = this.player.position.x + f.x * distance - f.z * side;
+    const z = this.player.position.z + f.z * distance + f.x * side;
+    const zombie = new Zombie(this.zombieSeed++, x, z, this.player.yaw + Math.PI, 'hunt', { holdsTool: false, kind, aware });
+    this.addZombie(zombie);
+    return zombie.id;
+  }
+
+  /** For automated tests: smashes the crate nearest to the player. */
+  breakNearestCrate(): void {
+    let best: Crate | null = null;
+    let bestD = Infinity;
+    for (const c of this.crates) {
+      if (c.broken) continue;
+      const d = c.mesh.getWorldPosition(tmp).distanceTo(this.player.position);
+      if (d < bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    if (best) this.breakCrate(best);
+  }
+
+  /** For automated tests: kills every zombie that is alive. */
+  debugKillAll(): void {
+    for (const z of this.zombies) {
+      if (!z.alive || z.invincible) continue;
+      z.health = 0;
+      const res = resolveShot([{ zone: 'torso', damage: 1e6, knockback: 0 }], z.targetState, 0, tuning);
+      z.applyHit(res, new Vector3(0, 0, -1), this.sfx, this.zombieHost);
+    }
+  }
+
+  /** For automated tests: hurts the player, gives items, or skips the wave break. */
+  debugCheat(kind: 'hurt' | 'herb' | 'spray' | 'coins' | 'skipBreak' | 'dropHere' | 'wave', value = 0, key = 'G'): void {
+    if (kind === 'hurt') this.damagePlayer(value, this.player.position.clone().add(tmp.set(0, 0, 1)), 0);
+    else if (kind === 'herb') this.supplies.addNew('herb', key);
+    else if (kind === 'spray') this.supplies.addNew('spray', 'spray');
+    else if (kind === 'coins') this.supplies.coins += value;
+    else if (kind === 'skipBreak') this.waves.skipBreak();
+    else if (kind === 'wave') this.waves.begin(value, 0);
+    else this.pickups.spawn({ type: 'coins', amount: value || 100 }, this.player.position.clone().add(tmp.set(1.5, 0.5, 0)), this.world.groundHeight(this.player.position.x, this.player.position.z));
+  }
+
   debugState() {
     return {
-      mode: this.mode,
+      mode: this.modeId,
+      level: this.mode,
+      health: this.health.current,
+      maxHealth: this.health.max,
+      dead: this.player.dead,
+      healing: this.player.healing,
+      wave: this.waves.wave,
+      waveState: this.waves.state,
+      kills: this.runKills,
+      coins: this.supplies.coins,
+      pickups: this.pickups.count,
+      items: this.supplies.items.map((i) => `${i.kind}:${i.key}`),
+      attackers: this.horde.attackers,
+      crates: this.crates.filter((c) => c.broken).length,
+      deathScreen: this.deathScreen.visible,
       paused: this.paused,
       weapon: this.player.def.id,
       ammo: this.player.gun.ammo,
@@ -1504,6 +1983,11 @@ export class Game {
       cameraYaw: this.cam.yaw,
       stats: { ...this.stats },
       zombies: this.zombies.map((z) => ({
+        id: z.id,
+        kind: z.kind,
+        aware: z.aware,
+        hasToken: this.horde.hasToken(z.id),
+        dist: Math.hypot(z.position.x - this.player.position.x, z.position.z - this.player.position.z),
         state: z.state,
         stateTime: z.stateTime,
         health: z.health,
