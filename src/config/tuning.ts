@@ -829,6 +829,7 @@ export const tuning = {
     masterVolume: 0.8, // Overall volume. [0 to 1]
     effectsVolume: 1, // Gunshots, impacts and footsteps. [0 to 1]
     voiceVolume: 1, // Zombie groans and grunts. [0 to 1]
+    musicVolume: 0.65, // Music volume for ambient dread and combat tracks. [0 to 1]
   },
 
   // Sky, fog and lighting: the dusk mood of the village.

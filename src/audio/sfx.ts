@@ -74,6 +74,14 @@ export class Sfx implements ZombieVoice {
     return this.ctx !== null && this.ctx.state === 'running';
   }
 
+  get audioContext(): AudioContext | null {
+    return this.ctx;
+  }
+
+  get masterNode(): GainNode | null {
+    return this.master;
+  }
+
   private init(): void {
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return;

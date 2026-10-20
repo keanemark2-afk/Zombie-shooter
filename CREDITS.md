@@ -19,8 +19,12 @@ required, credited here anyway). Each file was cut, trimmed, layered and faded b
 | `explosion-2.ogg` | Smaller explosion | [Dull explosion](https://opengameart.org/content/dull-explosion) | qubodup | CC0 |
 | `splat-a-1/2.ogg`, `splat-b-1/2.ogg` | Wet squelches for bursting heads, torn limbs and the knife | [2 wooden squish splatter sequences](https://opengameart.org/content/2-wooden-squish-splatter-sequences) | Independent.nu (submitted by qubodup) | CC0 |
 
-No outside images, models or music are used yet. When they are added (Phase 7),
-each one will be listed here with its creator, where it came from and its license.
+### Procedural Music (`src/audio/music.ts`)
+Original dynamic music synthesised live with the Web Audio API. Low ambient sub-dread,
+LFO-modulated minor chord drones and periodic tension swells for Survival mode, and an up-tempo
+128 BPM electronic bassline, arpeggios, and overdrive distortion for Score Attack mode.
+
+No outside recorded music files are used. All audio synthesis code is original.
 
 ## Software the game is built with
 | Tool | What it does | License |

@@ -83,3 +83,6 @@ The full brief is the user's original prompt; key rules are repeated here.
   user hit accidental 180s when sprinting while backing off).
 - Game world updates at a fixed 60 Hz (`tick`), drawing interpolates positions (`render`).
   Hit-stop freezes ticks only.
+- Score Attack & Dynamic Difficulty: `src/modes/scoreAttack.ts` (pure rules: timer, combo, overdrive,
+  high scores), `src/ai/dynamicDifficulty.ts` (monitors accuracy, damage, survivability to modulate
+  tokens, damage, drops). Procedural audio in `src/audio/music.ts`. Remappable bindings in `src/config/controls.ts`.

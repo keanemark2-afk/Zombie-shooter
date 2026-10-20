@@ -4,7 +4,7 @@ An over-the-shoulder zombie arena shooter that plays like the classic survival-h
 action games: tight pistol gunplay, body-part hit reactions, kicks and suplexes,
 a trader between waves, and a score-attack mode. No story, just the fighting.
 
-**Status:** Phase 5 of 7 (the case and the Trader, plus grenades, new enemies, the parasite and more guns, plus everything from earlier phases). See `PROGRESS.md`.
+**Status:** Fully built and polished through Phase 7 (Score Attack mode, Survival horde mode, shooting range, the Trader & case grid, dynamic difficulty, full settings, remappable controls, procedural Web Audio music, and polish). See `PROGRESS.md`.
 
 ## How to play (Windows)
 
@@ -31,6 +31,7 @@ If Node.js is missing, the launcher tells you exactly what to install.
 | Break free of a grab | Mash F (or V to stab) | Mash Cross (or R1) | Mash A (or RB) |
 | Sprint | Hold Shift | Hold Cross | Hold A |
 | Quick 180 turn | Hold S + tap Shift | Down + Cross | Down + A |
+| Overdrive (Score Attack) | Q | L3 + R3 | LS + RS |
 | Menu / pause | Esc | Options | Menu |
 | Tuning panel / FPS | F1 / F3 | | |
 

@@ -4,9 +4,22 @@ Plain-English log of what's built, what's next and what's known to be wrong.
 
 ## Where we are
 
-**Phases 0-6 are fully built and tested. Phase 6 (Score Attack, dynamic difficulty, full settings, remappable controls) is complete. Phase 7 (Music/audio polish, post-processing polish, performance pass) is next.**
+**Dead Acre is fully finished through Phase 7! All features from Phase 0 to Phase 7 are completely implemented, tuned, documented, and verified with 100% green tests.**
 
 ## Done
+
+### Phase 7 - Polish & Procedural Music
+- **Procedural Web Audio Soundtrack (`src/audio/music.ts`):**
+  - **Survival Mode:** Low ambient sub-dread drone (43 Hz dual-detuned oscillators with LFO filter sweeps, subtle heartbeat sub-pulse, and sparse eerie dissonant chords).
+  - **Score Attack Mode:** High-tempo 128 BPM electronic combat track featuring a syncopated 16th-note bassline in D minor, high-energy arpeggiation, downbeat synth kicks, and dynamic resonant filter expansion during Overdrive.
+  - Smooth volume fading and transitions between tracks; volume tied to master and music sliders in Settings / F1 tuning.
+- **Controls & Menus Polish:**
+  - Added Overdrive and control remapping guidance to `README.md`.
+  - Gamepad button prompt badges on all screens.
+- **Documentation & Credits:**
+  - Updated `CREDITS.md` with procedural music system documentation.
+  - Updated `README.md` and `CLAUDE.md`.
+- **Automated checks:** 240 unit tests across 19 suites and 7 Playwright smoke tests passing.
 
 ### Phase 6 - Score Attack & Settings
 - **Score Attack mode (new menu button):**
@@ -259,7 +272,7 @@ Plain-English log of what's built, what's next and what's known to be wrong.
   on-screen error box, automated checks.
 
 ## Up next
-- **Phase 7:** Music, audio polish, light post-processing polish, performance pass, and documentation.
+- All phases (0 through 7) are completed! Further iterations can explore new weapon variants or additional maps.
 
 ## Known problems / notes
 - In Survival you only have the starter pistol; the Trader (where you buy and upgrade

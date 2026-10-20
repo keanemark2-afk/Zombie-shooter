@@ -20,6 +20,7 @@ import {
 } from 'three';
 import { Horde } from '../ai/horde';
 import { Sfx } from '../audio/sfx';
+import { MusicDirector } from '../audio/music';
 import { FallingProp } from '../characters/handheld';
 import { chainsawHit, solveThrow } from '../combat/ballistics';
 import { isLimb, resolveShot, zoneGroup, type HitResult, type LimbSegment, type LimbZone, type PelletHit, type Zone } from '../combat/damage';
@@ -212,6 +213,8 @@ export class Game {
   private readonly elites = new EliteSchedule();
   readonly scoreAttack = new ScoreAttackDirector();
   readonly dynamicDifficulty = new DynamicDifficulty();
+  readonly music = new MusicDirector();
+  private musicAttached = false;
   private readonly flyCamera: FlyCamera;
   private readonly raycaster = new Raycaster();
   private readonly fallingProps: FallingProp[] = [];
@@ -473,6 +476,7 @@ export class Game {
   private goToMenu(): void {
     this.deathScreen.hide();
     this.clearRun();
+    this.music.play('none');
     this.modeId = null;
     this.paused = true;
     this.player.object.visible = false;
@@ -506,6 +510,13 @@ export class Game {
     this.clearRun();
     this.dynamicDifficulty.reset();
     this.scoreAttack.reset();
+    if (this.sfx.audioContext && !this.musicAttached) {
+      this.musicAttached = true;
+      this.music.attachContext(this.sfx.audioContext, this.sfx.masterNode);
+    }
+    if (id === 'survival') this.music.play('ambient');
+    else if (id === 'score') this.music.play('action');
+    else this.music.play('none');
     this.world.setLevel(levelFor(id));
     this.modeId = id;
     this.setupBarrels();
@@ -1075,6 +1086,7 @@ export class Game {
   }
 
   private showDeathScreen(): void {
+    this.music.play('none');
     if (this.modeId === 'score') {
       this.endScoreAttack('death');
       return;
@@ -1095,6 +1107,7 @@ export class Game {
   }
 
   private endScoreAttack(reason: 'time' | 'kills' | 'death'): void {
+    this.music.play('none');
     const result = this.scoreAttack.endRun(reason);
     const mins = Math.floor(result.leftoverTime / 60);
     const secs = Math.floor(result.leftoverTime % 60);
@@ -2328,6 +2341,13 @@ export class Game {
     if (this.tuningPanel.visible) {
       this.tuningPanel.setLiveInfo('Dynamic Difficulty Rank', `${this.dynamicDifficulty.rank.toFixed(1)} / 10 (${this.dynamicDifficulty.enabled ? 'ON' : 'OFF'})`);
     }
+
+    if (this.sfx.audioContext && !this.musicAttached) {
+      this.musicAttached = true;
+      this.music.attachContext(this.sfx.audioContext, this.sfx.masterNode);
+    }
+    this.music.setOverdrive(this.modeId === 'score' && this.scoreAttack.inOverdrive);
+    this.music.tick(dt);
 
     if (this.grabbedBy) {
       this.tickGrab(dt, input);
