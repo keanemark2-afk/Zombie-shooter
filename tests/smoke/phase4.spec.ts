@@ -208,6 +208,13 @@ test('phase 4: grenades, new enemies, parasite and extra pistols', async ({ page
   await page.evaluate(() => window.__deadAcre!.aimAt('parasite'));
   await page.keyboard.press('KeyG');
   await expect.poll(async () => (await state(page)).launched.flash, { timeout: 180_000 }).toBeGreaterThan(1);
+  // Verify that a flash directly kills a parasite:
+  await page.evaluate((id) => {
+    const g = (window as unknown as { __game: { zombies: Array<{ id: number; flash: (t: number, h: unknown) => void }>; zombieHost: unknown } }).__game;
+    const z = g.zombies.find((x) => x.id === id);
+    if (z) z.flash(5, g.zombieHost);
+  }, host);
+  await expect.poll(() => isAlive(page, host), { timeout: 30_000 }).toBe(false);
 
   // ---- The two extra pistols.
   await page.evaluate(() => window.__deadAcre!.start('range'));

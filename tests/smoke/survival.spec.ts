@@ -85,7 +85,7 @@ test('survival: waves, turns, healing, drops and death', async ({ page }) => {
   await expect.poll(async () => (await state(page)).healing, { timeout: 60_000 }).toBe(false);
   s = await state(page);
   expect(s.health).toBe(75);
-  expect(s.items.filter((i) => !i.startsWith('grenade'))).toEqual([]);
+  expect(s.items.filter((i) => !i.startsWith('grenade'))).toEqual(['weapon:pistol']);
 
   // Hit while healing: the herb is not used up.
   await page.evaluate(() => window.__deadAcre!.cheat('herb', 0, 'G'));

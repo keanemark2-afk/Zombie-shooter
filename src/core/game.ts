@@ -492,6 +492,7 @@ export class Game {
     this.restoreBarrels();
     this.restoreCrates();
     this.horde.reset();
+    this.traderForced = false;
   }
 
   startMode(id: GameMode): void {
@@ -1282,7 +1283,7 @@ export class Game {
 
   /** Is the Trader's stall open for business? (Added in Phase 5.) */
   private hasTrader(): boolean {
-    return this.modeId === 'survival' && this.waves.state === 'intermission' && !!this.world.level.trader && !this.player.dead;
+    return (this.traderForced || (this.modeId === 'survival' && this.waves.state === 'intermission')) && !!this.world.level.trader && !this.player.dead;
   }
 
   // ---------------------------------------------------------------------------
@@ -1327,6 +1328,7 @@ export class Game {
       this.traderScreen.show(this.traderHost(), false);
       return;
     }
+    this.traderForced = false;
     this.ui = null;
     this.caseScreen.hide();
     this.traderScreen.hide();
@@ -1339,6 +1341,7 @@ export class Game {
 
   private traderReopen = false;
   private pendingTrader = false;
+  private traderForced = false;
 
   private traderHost(): TraderUiHost {
     return {
@@ -2595,7 +2598,10 @@ export class Game {
   debugUi(which: 'case' | 'trader' | 'close'): void {
     if (which === 'close') this.closeUi();
     else if (which === 'case') this.openCase();
-    else this.openTrader();
+    else {
+      this.traderForced = true;
+      this.openTrader();
+    }
   }
 
   debugState() {
