@@ -192,21 +192,22 @@ export class Gun {
   /**
    * Pull the trigger. Returns "fired", "empty" (click), or "busy" (still
    * pumping or recovering). Firing during a shell-by-shell reload stops it.
+   * If freeAmmo is true (e.g. during Overdrive), ammo is not consumed and the gun will not be empty.
    */
-  pullTrigger(): 'fired' | 'empty' | 'busy' {
+  pullTrigger(freeAmmo = false): 'fired' | 'empty' | 'busy' {
     if (this.reloading) {
       if (this.def.reload === 'shells' && this.ammo > 0 && this.shellPhase !== 'chamber') this.reloading = false;
       else return 'busy';
     }
     if (this.cooldown > 0) return 'busy';
-    if (this.ammo <= 0) {
+    if (!freeAmmo && this.ammo <= 0) {
       this.cooldown = 0.25;
       return 'empty';
     }
-    this.ammo--;
+    if (!freeAmmo) this.ammo--;
     this.cooldown = this.stats.fireInterval;
     this.sinceShot = 0;
-    if (this.def.cycle !== 'none') this.cyclePending = this.ammo > 0;
+    if (this.def.cycle !== 'none') this.cyclePending = this.ammo > 0 || freeAmmo;
     else this.action = 1;
     return 'fired';
   }

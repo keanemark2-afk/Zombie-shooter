@@ -24,6 +24,7 @@ export class PlayerInputReader {
   private pendingInteract = false;
   private pendingKnife = false;
   private pendingPause = false;
+  private pendingOverdrive = false;
   private pendingSlot: number | null = null;
   private pendingCycle = 0;
 
@@ -67,6 +68,7 @@ export class PlayerInputReader {
     this.pendingInteract ||= this.pressed('interact');
     this.pendingKnife ||= this.pressed('knife');
     this.pendingPause ||= this.pressed('pause');
+    this.pendingOverdrive ||= this.pressed('overdrive');
     slotKeys.forEach((key, i) => {
       if (this.input.wasPressed(key)) this.pendingSlot = i + 1;
     });
@@ -110,6 +112,13 @@ export class PlayerInputReader {
     const p = this.pendingPause;
     this.pendingPause = false;
     return p;
+  }
+
+  /** Was overdrive activation asked for? Clears the request. */
+  takeOverdrive(): boolean {
+    const o = this.pendingOverdrive;
+    this.pendingOverdrive = false;
+    return o;
   }
 
   /** Controls for one game-world update. Clears the remembered presses. */
@@ -163,7 +172,7 @@ export class PlayerInputReader {
 
   /** Forget any remembered presses (e.g. when the game is paused). */
   clear(): void {
-    this.pendingFire = this.pendingReload = this.pendingSprint = this.pendingPause = false;
+    this.pendingFire = this.pendingReload = this.pendingSprint = this.pendingPause = this.pendingOverdrive = false;
     this.pendingMelee = this.pendingKnife = this.pendingHeal = this.pendingGrenade = this.pendingGrenadeCycle = false;
     this.pendingCase = this.pendingInteract = false;
     this.pendingSlot = null;

@@ -32,7 +32,8 @@ export class DeathScreen {
   }
 
   /** `lines` are plain text, one per row. `hint` shows the keys / pad buttons. */
-  show(lines: string[], hint: string): void {
+  show(lines: string[], hint: string, title = 'YOU DIED'): void {
+    (this.root.querySelector('.death-title') as HTMLElement).textContent = title;
     (this.root.querySelector('.death-summary') as HTMLElement).innerHTML = lines.map((l) => `<div>${l}</div>`).join('');
     (this.root.querySelector('.death-hint') as HTMLElement).textContent = hint;
     this.root.hidden = false;

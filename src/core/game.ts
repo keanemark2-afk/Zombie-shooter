@@ -48,6 +48,8 @@ import { FireSystem, ThrownSystem, type Thrown, type ThrownHost } from '../fx/th
 import { itemDef, type GrenadeKind } from '../inventory/items';
 import { chooseHealItem, Supplies } from '../inventory/supplies';
 import { EliteSchedule, WaveDirector } from '../modes/waves';
+import { ScoreAttackDirector, type KillEvent } from '../modes/scoreAttack';
+import { DynamicDifficulty } from '../ai/dynamicDifficulty';
 import { NO_INPUT, Player, type MeleePhase, type PlayerHost, type PlayerInput } from '../player/player';
 import { ShoulderCamera } from '../player/shoulderCamera';
 import { PostFx } from '../render/postFx';
@@ -208,6 +210,8 @@ export class Game {
   readonly supplies = new Supplies();
   private readonly waves = new WaveDirector();
   private readonly elites = new EliteSchedule();
+  readonly scoreAttack = new ScoreAttackDirector();
+  readonly dynamicDifficulty = new DynamicDifficulty();
   private readonly flyCamera: FlyCamera;
   private readonly raycaster = new Raycaster();
   private readonly fallingProps: FallingProp[] = [];
@@ -374,6 +378,7 @@ export class Game {
       meleeEvent: (move, phase) => this.meleeEvent(move, phase),
       healFinished: () => this.healFinished(),
       throwGrenade: () => this.releaseGrenade(),
+      get inOverdrive() { return self.modeId === 'score' && self.scoreAttack.inOverdrive; },
     };
     this.deathScreen.onChoose = (choice) => {
       this.deathScreen.hide();
@@ -492,12 +497,15 @@ export class Game {
     this.restoreBarrels();
     this.restoreCrates();
     this.horde.reset();
+    this.scoreAttack.reset();
     this.traderForced = false;
   }
 
   startMode(id: GameMode): void {
     this.deathScreen.hide();
     this.clearRun();
+    this.dynamicDifficulty.reset();
+    this.scoreAttack.reset();
     this.world.setLevel(levelFor(id));
     this.modeId = id;
     this.setupBarrels();
@@ -547,6 +555,15 @@ export class Game {
     if (practice) {
       this.spawnMissingDummies();
       for (const kind of GRENADE_ORDER) for (let i = 0; i < 3; i++) this.supplies.addNew('grenade', kind);
+    } else if (id === 'score') {
+      this.player.setLoadout({ pistol: 40 }, 'pistol');
+      for (let i = 0; i < tuning.grenades.startFrag; i++) this.supplies.addNew('grenade', 'frag');
+      this.supplies.addNew('herb', 'G');
+      const orbCoords: Array<[number, number]> = [[-14, -14], [14, -14], [14, 14], [-14, 8]];
+      for (const [ox, oz] of orbCoords) {
+        this.pickups.spawn({ type: 'orb' }, new Vector3(ox, 0, oz), this.world.groundHeight(ox, oz), Number.POSITIVE_INFINITY);
+      }
+      this.waves.begin(1, 0);
     } else {
       this.player.setLoadout({ pistol: 40 }, 'pistol');
       for (let i = 0; i < tuning.grenades.startFrag; i++) this.supplies.addNew('grenade', 'frag');
@@ -655,6 +672,25 @@ export class Game {
   private onZombieDied(z: Zombie): void {
     this.runKills++;
     this.stats.kills++;
+    if (this.modeId === 'score') {
+      const elite = isElite(z.kind);
+      const killEvent: KillEvent = {
+        zone: z.lastKillInfo.zone,
+        isMelee: z.lastKillInfo.isMelee,
+        meleeType: z.lastKillInfo.meleeType,
+        isElite: elite,
+        isExplosion: z.lastKillInfo.isExplosion,
+        isHeadshot: z.lastKillInfo.isHeadshot,
+      };
+      const { timeBonus } = this.scoreAttack.onKill(killEvent);
+      if (timeBonus > 0) {
+        this.hud.addFeed(`+${timeBonus}s Bonus!`, 'good');
+      }
+      if (this.scoreAttack.state.ended) {
+        this.endScoreAttack(this.scoreAttack.state.endReason!);
+        return;
+      }
+    }
     if (this.modeId === 'range') return;
     const rolls = isElite(z.kind) ? 4 : 1;
     for (let i = 0; i < rolls; i++) {
@@ -999,13 +1035,23 @@ export class Game {
   }
 
   /** Hurts the player (nothing happens to your health on the practice range). */
-  private damagePlayer(amount: number, from: Vector3, push = tuning.zombie.attackPush): void {
+  private damagePlayer(amount: number, from: Vector3, push = tuning.zombie.attackPush, scaleWithDifficulty = true): void {
     const p = this.player;
     if (p.dead) return;
     if (this.modeId !== 'range') {
-      const done = this.health.damage(amount, tuning.health.graceTime);
+      let finalAmount = amount;
+      if (scaleWithDifficulty) {
+        const diffKey = `${settings.difficulty}Damage` as keyof typeof tuning.difficulty;
+        const diffMul = (tuning.difficulty[diffKey] as number | undefined) ?? 1;
+        const ddMul = this.dynamicDifficulty.modifiers().damageMultiplier;
+        finalAmount *= diffMul * ddMul;
+      }
+      const done = this.health.damage(finalAmount, tuning.health.graceTime);
       if (done <= 0) return;
       this.damageTaken += done;
+      if (scaleWithDifficulty) {
+        this.dynamicDifficulty.recordDamage(done);
+      }
     } else if (this.health.grace > 0) {
       return;
     } else {
@@ -1020,6 +1066,7 @@ export class Game {
   }
 
   private playerDied(): void {
+    this.dynamicDifficulty.recordDeath();
     this.player.die();
     if (this.grabbedBy) this.endGrab();
     this.sfx.playerDeath();
@@ -1028,6 +1075,10 @@ export class Game {
   }
 
   private showDeathScreen(): void {
+    if (this.modeId === 'score') {
+      this.endScoreAttack('death');
+      return;
+    }
     const mins = Math.floor((this.gameTime - this.startedAt) / 60);
     const secs = Math.floor((this.gameTime - this.startedAt) % 60);
     const lines = [
@@ -1041,6 +1092,26 @@ export class Game {
     this.releasingMouse = true;
     this.input.unlockPointer();
     this.deathScreen.show(lines, hint);
+  }
+
+  private endScoreAttack(reason: 'time' | 'kills' | 'death'): void {
+    const result = this.scoreAttack.endRun(reason);
+    const mins = Math.floor(result.leftoverTime / 60);
+    const secs = Math.floor(result.leftoverTime % 60);
+    const timeStr = `${mins}:${String(secs).padStart(2, '0')}`;
+    const lines = [
+      `Final Score: <b>${result.finalScore.toLocaleString('en-US')}</b> (Rank <b>${result.rank}</b>)`,
+      `Zombies Killed: <b>${result.kills} / ${tuning.scoreAttack.targetKills}</b>`,
+      `Max Combo: <b>${result.maxCombo}</b>`,
+      `Time Left: <b>${timeStr}</b> (+${result.timeBonusScore.toLocaleString('en-US')} pts)`,
+      result.isNewRecord ? '<span style="color:#f2c94c;font-weight:bold;">★ NEW HIGH SCORE ★</span>' : '',
+    ].filter(Boolean);
+    const title = reason === 'kills' ? 'TARGET COMPLETED' : reason === 'time' ? 'TIME EXPIRED' : 'YOU DIED';
+    const padType = this.pad.connected && this.controls.lastDevice === 'gamepad' ? this.pad.type : null;
+    const hint = padType ? `${padButtonName(PAD.south, padType)}: try again   ${padButtonName(PAD.east, padType)}: main menu` : 'Enter or R: try again   Esc: main menu';
+    this.releasingMouse = true;
+    this.input.unlockPointer();
+    this.deathScreen.show(lines, hint, title);
   }
 
   private startGrab(z: Zombie): void {
@@ -1199,8 +1270,14 @@ export class Game {
         this.sfx.pickup(d.type === 'treasure' ? 'treasure' : d.type === 'grenade' ? 'grenade' : d.type === 'spray' ? 'spray' : 'herb');
         return true;
       }
-      case 'orb':
+      case 'orb': {
+        const added = this.scoreAttack.addTimeOrb();
+        if (added > 0) {
+          this.hud.addFeed(`+${added}s Time Bonus`, 'good');
+          this.sfx.pickup('orb');
+        }
         return true;
+      }
     }
   }
 
@@ -1496,6 +1573,9 @@ export class Game {
     if (!z) return;
     const dir = tmp3.subVectors(z.position, p.position).setY(0).normalize();
     const land = (damage: number, zone: Zone, push: number): HitResult => {
+      z.lastKillInfo.isMelee = true;
+      z.lastKillInfo.meleeType = move;
+      z.lastKillInfo.isExplosion = false;
       const result = resolveShot([{ zone, damage, knockback: push }], z.targetState, 1, tuning);
       z.applyHit(result, dir.clone(), this.sfx, this.zombieHost);
       return result;
@@ -1515,6 +1595,9 @@ export class Game {
         if (other === z || !other.alive || other.state === 'carried' || other.state === 'grabbing') continue;
         const to = other.chestPosition(tmp).sub(p.position).setY(0);
         if (to.length() > m.kickRadius) continue;
+        other.lastKillInfo.isMelee = true;
+        other.lastKillInfo.meleeType = 'roundhouse';
+        other.lastKillInfo.isExplosion = false;
         const res = resolveShot([{ zone: 'torso', damage: m.kickSplashDamage, knockback: 5 }], other.targetState, 1, tuning);
         other.applyHit(res, to.normalize(), this.sfx, this.zombieHost);
         swept++;
@@ -1538,8 +1621,14 @@ export class Game {
       this.sfx.grunt(z.chestPosition(tmp), z.voicePitch);
     } else if (move === 'suplex' && phase === 'slam') {
       // Head first into the ground. Damage now; it lands properly at "release".
+      z.lastKillInfo.isMelee = true;
+      z.lastKillInfo.meleeType = 'suplex';
+      z.lastKillInfo.isExplosion = false;
       const r = resolveShot([{ zone: 'torso', damage: m.suplexDamage, knockback: 0 }], { ...z.targetState, downed: true }, 1, tuning);
       z.health = r.healthAfter;
+      if (r.killed) {
+        z.applyHit(r, UP, this.sfx, this.zombieHost);
+      }
       const head = z.headPosition(tmp);
       head.y = Math.max(head.y, this.world.groundHeight(head.x, head.z) + 0.1);
       this.sfx.slam(head);
@@ -1617,6 +1706,9 @@ export class Game {
       if (to.length() > tuning.knife.range + 0.3) continue;
       if (MathUtils.radToDeg(Math.abs(angleBetweenFlat(to, fwd))) > tuning.knife.arc) continue;
       const zone: Zone = z.lying ? 'head' : 'torso';
+      z.lastKillInfo.isMelee = true;
+      z.lastKillInfo.meleeType = 'knife';
+      z.lastKillInfo.isExplosion = false;
       const result = resolveShot([{ zone, damage: tuning.knife.damage, knockback: 0.3 }], z.targetState, 1, tuning);
       z.applyHit(result, to.clone().normalize(), this.sfx, this.zombieHost);
       this.sfx.knifeHit(c);
@@ -1782,6 +1874,8 @@ export class Game {
       const wall = this.world.raycast(at, to.clone().normalize(), Math.max(0, d - 0.3));
       if (wall && !this.barrelFor(wall.object)) continue;
       const dir = to.setY(Math.max(0.1, to.y)).normalize();
+      z.lastKillInfo.isExplosion = true;
+      z.lastKillInfo.isMelee = false;
       if (!z.alive) {
         if (gore !== 'off' && d < spec.gibRadius) this.gibZombie(z, at);
         continue;
@@ -1949,6 +2043,7 @@ export class Game {
     const def = this.player.def;
     if (def.projectile) {
       this.launchRocket();
+      this.dynamicDifficulty.recordShot(true, false);
       return;
     }
     const gun = this.player.stats;
@@ -2090,6 +2185,8 @@ export class Game {
         overkillRatio: tuning.parasite.overkillRatio,
       });
       entry.dir.normalize();
+      z.lastKillInfo.isMelee = false;
+      z.lastKillInfo.isExplosion = false;
       z.applyHit(result, entry.dir, this.sfx, this.zombieHost);
       this.applyGore(z, result, entry.dir);
       if (result.reaction === 'knockdown' || result.killed) knockedDown++;
@@ -2124,6 +2221,7 @@ export class Game {
       this.stats.headshots++;
       this.cam.shake(f.shakeHeadshot);
     }
+    this.dynamicDifficulty.recordShot(pelletHits > 0, headHit);
   }
 
   // ---------------------------------------------------------------------------
@@ -2207,6 +2305,29 @@ export class Game {
     this.horde.update(dt, this.zombies, { position: this.player.position, velocity: this.player.velocity, alive: !this.player.dead });
     for (const z of this.zombies) z.update(dt, this.zombieHost);
     this.survivalTick(dt);
+
+    if (this.modeId === 'score') {
+      if (this.controls.takeOverdrive()) {
+        const activated = this.scoreAttack.activateOverdrive();
+        if (activated) {
+          this.hud.addFeed('★ OVERDRIVE ACTIVATED ★', 'good');
+          this.sfx.pickup('spray');
+          this.cam.shake(0.2);
+        }
+      }
+      this.scoreAttack.tick(dt);
+      if (this.scoreAttack.state.ended) {
+        this.endScoreAttack(this.scoreAttack.state.endReason!);
+        return;
+      }
+    }
+    this.dynamicDifficulty.enabled = tuning.dynamicDifficulty.enabled;
+    this.dynamicDifficulty.tick(dt);
+    const ddMods = this.dynamicDifficulty.modifiers(tuning.ai.maxAttackers);
+    this.horde.tokens.max = ddMods.maxAttackers;
+    if (this.tuningPanel.visible) {
+      this.tuningPanel.setLiveInfo('Dynamic Difficulty Rank', `${this.dynamicDifficulty.rank.toFixed(1)} / 10 (${this.dynamicDifficulty.enabled ? 'ON' : 'OFF'})`);
+    }
 
     if (this.grabbedBy) {
       this.tickGrab(dt, input);
@@ -2333,8 +2454,14 @@ export class Game {
       this.traderNpc.update(dt);
       this.updateTraderMarker();
       const live = this.modeId === 'survival' || this.modeId === 'score';
-      if (live) this.hud.setTopInfo(this.survivalInfo());
-      else this.hud.setStats(this.mode === 'range' ? this.stats : null);
+      if (this.modeId === 'score') {
+        this.hud.setTopInfo(null);
+        this.hud.updateScoreAttack(this.scoreAttack);
+      } else {
+        this.hud.updateScoreAttack(null);
+        if (this.modeId === 'survival') this.hud.setTopInfo(this.survivalInfo());
+        else this.hud.setStats(this.mode === 'range' ? this.stats : null);
+      }
       this.updateHealthHud(live);
       const padName = this.pad.connected ? (this.pad.type === 'playstation' ? 'Options' : 'Menu') : null;
       this.hud.setHint(this.controls.lastDevice === 'gamepad' && padName ? `${padName}: menu & controls` : 'Esc: menu & controls  ·  F1: tuning');
@@ -2585,7 +2712,7 @@ export class Game {
   debugCheat(kind: 'hurt' | 'herb' | 'spray' | 'coins' | 'skipBreak' | 'dropHere' | 'wave' | 'grenade' | 'fire', value = 0, key = 'G'): void {
     if (kind === 'grenade') for (let i = 0; i < value; i++) this.supplies.addNew('grenade', key);
     else if (kind === 'fire') this.igniteGround(this.player.position.clone().addScaledVector(this.player.forward(tmp), value || 6));
-    else if (kind === 'hurt') this.damagePlayer(value, this.player.position.clone().add(tmp.set(0, 0, 1)), 0);
+    else if (kind === 'hurt') this.damagePlayer(value, this.player.position.clone().add(tmp.set(0, 0, 1)), 0, false);
     else if (kind === 'herb') this.supplies.addNew('herb', key);
     else if (kind === 'spray') this.supplies.addNew('spray', 'spray');
     else if (kind === 'coins') this.supplies.coins += value;
@@ -2680,6 +2807,19 @@ export class Game {
       padConnected: this.pad.connected,
       padType: this.pad.type,
       lastDevice: this.controls.lastDevice,
+      score: this.scoreAttack.state.score,
+      combo: this.scoreAttack.state.combo,
+      maxCombo: this.scoreAttack.state.maxCombo,
+      timeRemaining: this.scoreAttack.state.timeRemaining,
+      overdrive: this.scoreAttack.inOverdrive,
+      overdriveGauge: this.scoreAttack.state.overdriveGauge,
+      dynamicDifficultyRank: this.dynamicDifficulty.rank,
+      difficulty: settings.difficulty,
+      mouseSensitivity: settings.mouseSensitivity,
+      invertY: settings.invertY,
+      aimMode: settings.aimMode,
+      fov: settings.fov,
+      graphicsQuality: settings.graphicsQuality,
     };
   }
 

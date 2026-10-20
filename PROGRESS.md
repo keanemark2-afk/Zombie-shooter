@@ -4,9 +4,30 @@ Plain-English log of what's built, what's next and what's known to be wrong.
 
 ## Where we are
 
-**Building straight through to the end (you asked me to). Phases 0-5 are done (you asked me to trim the rest to save your usage, so Phases 6 and 7 are NOT built - see the end).**
+**Phases 0-6 are fully built and tested. Phase 6 (Score Attack, dynamic difficulty, full settings, remappable controls) is complete. Phase 7 (Music/audio polish, post-processing polish, performance pass) is next.**
 
 ## Done
+
+### Phase 6 - Score Attack & Settings
+- **Score Attack mode (new menu button):**
+  - Race against a 2:00 clock to reach 150 kills or survive until time expires.
+  - **Combo system:** kills within 10 seconds build a combo counter. Points per kill scale: base 1,000 pts + (combo - 1) x 500 up to combo 10, and + 1,000 per kill beyond.
+  - **Time bonuses:** headshot / kick kill (+2s), suplex kill (+5s), barrel explosion (+1s), elite kill (+10s).
+  - **Time Orbs:** glowing golden orbs placed around the village grant +30s each when collected.
+  - **Overdrive:** gauge builds passively and through kills. Press **Q** (or L3+R3) when full for 20 seconds of unlimited firing (no reloads) and double time bonuses.
+  - **Results screen:** converts leftover time to bonus points (1,000 pts/sec), computes rank (S++ >= 1,000,000, S+ >= 500,000, S >= 200,000, A, B, C) and saves local high score per map.
+- **Hidden Dynamic Difficulty:**
+  - Monitors player accuracy, headshots, damage taken, time survived without taking damage, and deaths.
+  - Quietly nudges difficulty rank (1-10, neutral default 5) to adjust max concurrent attackers, enemy sprint chance, incoming damage, spawn pace, and drop rates.
+  - Shown live in F1 > Live info, with an on/off toggle switch.
+- **Full Settings Screen:**
+  - Accessible from the main menu and pause screen.
+  - Difficulty selection: Easy, Normal, Hard, Pro with enemy damage and ammo multipliers.
+  - Control options: Mouse sensitivity slider, Invert Y toggle, Aim mode (Classic / Modern), FOV slider.
+  - Graphics options: Low, Medium, High quality presets adjusting shadows and resolution scale.
+  - Audio and Gore options.
+  - **Remappable Controls screen:** inspect and rebind keyboard keys and controller buttons with persistent local storage saving.
+- **Automated checks:** 236 unit tests and 7 Playwright browser smoke tests including `tests/smoke/phase6.spec.ts`.
 
 ### Phase 5 - Case & Trader
 - **Attache case (Tab / Create button):** a 7x10 grid holding your guns, herbs, grenades,
@@ -237,10 +258,8 @@ Plain-English log of what's built, what's next and what's known to be wrong.
 - `Play Game.bat` launcher, the dusk village arena, F3 FPS counter, F1 tuning panel,
   on-screen error box, automated checks.
 
-## Not built (trimmed at your request)
-- **Phase 6:** Score Attack mode, hidden dynamic difficulty, full difficulty/settings screens, remappable controls.
-- **Phase 7:** music, post-processing polish, real models, performance pass.
-The difficulty setting exists (it makes the chainsaw instant-kill on Hard/Pro) but has no menu yet.
+## Up next
+- **Phase 7:** Music, audio polish, light post-processing polish, performance pass, and documentation.
 
 ## Known problems / notes
 - In Survival you only have the starter pistol; the Trader (where you buy and upgrade

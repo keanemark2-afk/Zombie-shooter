@@ -182,6 +182,14 @@ export class Zombie {
   burning = 0;
   /** What it throws, if anything. */
   throws: ThrownKind | null = null;
+  /** Context about the last attack applied, used for Score Attack kill scoring. */
+  lastKillInfo = {
+    isMelee: false,
+    meleeType: undefined as 'frontKick' | 'roundhouse' | 'suplex' | 'knife' | 'finisher' | undefined,
+    isExplosion: false,
+    isHeadshot: false,
+    zone: 'body',
+  };
 
   private readonly blender = new PoseBlender();
   private readonly rand: () => number;
@@ -546,6 +554,8 @@ export class Zombie {
   applyHit(hit: HitResult, dir: Vector3, voice: ZombieVoice, host: ZombieHost): void {
     if (!this.alive) return;
     this.hostRef = host;
+    this.lastKillInfo.zone = hit.zone;
+    if (hit.zone === 'head' || hit.headPop) this.lastKillInfo.isHeadshot = true;
     if (this.parasite) this.parasiteHealth = hit.healthAfter;
     else this.health = hit.healthAfter;
     this.aware = true;
@@ -776,7 +786,7 @@ export class Zombie {
     this.rig.root.visible = false;
     this.rig.parts.length = 0;
     this.setState('dead');
-    this.stateTime = tuning.zombie.corpseTime + 2; // removed straight away
+    this.stateTime = Math.max(0, tuning.zombie.corpseTime - 1.5); // stays briefly so tests and stats can observe the gib
   }
 
   // -------------------------------------------------------------------------

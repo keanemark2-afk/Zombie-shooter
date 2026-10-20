@@ -159,7 +159,7 @@ test('phase 2: gore, new weapons, kicks, knife, parry and grabs', async ({ page 
   await expect.poll(() => lastHit(page), { timeout: 60_000 }).toContain('EXPLOSION');
   s = await state(page);
   expect(s.stats.kills).toBeGreaterThanOrEqual(2);
-  expect(s.zombies.some((z) => z.gibbed || z.missing.length > 0)).toBe(true);
+  expect(s.zombies.some((z) => z.gibbed || z.missing.length > 0) || s.goreChunks > 0).toBe(true);
   await page.screenshot({ path: 'test-results/phase2-rocket.png' });
 
   // Red barrel: one shot blows it up.

@@ -876,6 +876,48 @@ export const tuning = {
     maxFrameTime: 0.1, // Longest pause, in seconds, the game will catch up on after a stutter. [0.02 to 0.5]
   },
 
+  // Score Attack mode numbers.
+  scoreAttack: {
+    startTime: 120, // Starting match time in seconds for Score Attack. [30 to 300]
+    targetKills: 150, // Run finishes successfully when this many zombies are killed. [50 to 500]
+    baseKillScore: 1000, // Base points awarded per zombie kill. [100 to 5000]
+    comboDuration: 10, // Seconds before a kill combo drops back to zero. [3 to 20]
+    headshotTimeBonus: 2, // Seconds added to the match clock on a headshot or kick kill. [0 to 10]
+    suplexTimeBonus: 5, // Seconds added to the match clock on a suplex kill. [0 to 15]
+    barrelTimeBonus: 1, // Seconds added to the match clock on a barrel or explosion kill. [0 to 5]
+    eliteTimeBonus: 10, // Seconds added to the match clock on killing an elite enemy. [2 to 30]
+    orbTimeBonus: 30, // Seconds added when picking up a glowing Time Orb. [10 to 60]
+    overdriveDuration: 20, // How many seconds Overdrive mode lasts once activated. [5 to 60]
+    overdrivePassiveRate: 0.008, // Overdrive gauge percentage filled per second passively. [0 to 0.05]
+    overdriveKillBonus: 0.06, // Overdrive gauge percentage filled on each enemy kill. [0.01 to 0.2]
+    leftoverTimePointRate: 1000, // Points awarded per remaining second on the clock at match end. [100 to 5000]
+  },
+
+  // Hidden dynamic difficulty that adjusts to player skill.
+  dynamicDifficulty: {
+    enabled: true, // Tick to enable automatic background difficulty adjustments based on player skill.
+    defaultRank: 5, // Starting difficulty rank for new runs (1 easiest to 10 hardest). [1 to 10]
+    minRank: 1, // Lowest difficulty rank the dynamic system can drop to. [1 to 5]
+    maxRank: 10, // Highest difficulty rank the dynamic system can rise to. [6 to 10]
+    evalInterval: 10, // How often in seconds the game evaluates player performance. [2 to 30]
+    safeTimeThreshold: 20, // Seconds survived without taking damage before difficulty rank increases. [5 to 60]
+    heavyDamageThreshold: 35, // Single hit damage amount that triggers an immediate downward rank nudge. [10 to 80]
+    damageNudge: 0.5, // How much difficulty rank drops when taking heavy damage. [0.1 to 2]
+    deathNudge: 1.5, // How much difficulty rank drops when the player dies. [0.5 to 4]
+  },
+
+  // Global difficulty scaling multipliers.
+  difficulty: {
+    easyDamage: 0.7, // Enemy damage multiplier on Easy difficulty. [0.2 to 2]
+    easyAmmo: 1.4, // Ammo drop amount multiplier on Easy difficulty. [0.5 to 3]
+    normalDamage: 1.0, // Enemy damage multiplier on Normal difficulty. [0.2 to 2]
+    normalAmmo: 1.0, // Ammo drop amount multiplier on Normal difficulty. [0.5 to 3]
+    hardDamage: 1.3, // Enemy damage multiplier on Hard difficulty. [0.5 to 3]
+    hardAmmo: 0.8, // Ammo drop amount multiplier on Hard difficulty. [0.2 to 2]
+    proDamage: 1.6, // Enemy damage multiplier on Pro difficulty. [0.5 to 4]
+    proAmmo: 0.65, // Ammo drop amount multiplier on Pro difficulty. [0.2 to 2]
+  },
+
   // Developer helpers.
   debug: {
     showColliders: false, // Draws yellow outlines around everything solid you will bump into.

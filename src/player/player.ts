@@ -90,6 +90,8 @@ export interface PlayerHost {
   knifeSlash(): void;
   /** A kick lands, a suplex lifts or slams, a stab goes in. */
   meleeEvent(move: MeleeMove, phase: MeleePhase): void;
+  /** Whether Overdrive mode is active (grants infinite ammo with no reloads). */
+  inOverdrive?: boolean;
 }
 
 const IK_JOINTS: JointName[] = ['shoulderL', 'elbowL', 'wristL', 'shoulderR', 'elbowR', 'wristR'];
@@ -698,7 +700,7 @@ export class Player {
 
     const trigger = gun.def.auto ? input.fireHeld || input.firePressed : input.firePressed;
     if (trigger && this.aiming && this.stunTime <= 0) {
-      const result = gun.pullTrigger();
+      const result = gun.pullTrigger(host.inOverdrive ?? false);
       if (result === 'fired') {
         const s = gun.stats;
         this.recoilAnim = 1;

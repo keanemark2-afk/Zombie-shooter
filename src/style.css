@@ -901,3 +901,210 @@ body {
 .trader-note { margin-top: 10px; color: #9fe39f; } .trader-note.bad { color: #ff8a7a; }
 .trader-timer { color: var(--text-dim); }
 .trader-foot .primary { border-color: var(--accent); }
+
+
+/* --- Phase 6: Score Attack and Settings Remap Styles --- */
+.score-hud {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  z-index: 10;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.85);
+}
+.score-clock {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #fff;
+  background: rgba(18, 14, 12, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 4px 16px;
+}
+.score-clock.urgent {
+  color: #ff3b30;
+  border-color: #ff3b30;
+  animation: urgent-pulse 0.5s ease-in-out infinite alternate;
+}
+@keyframes urgent-pulse {
+  from { transform: scale(1); }
+  to { transform: scale(1.08); }
+}
+.score-display {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+.score-num {
+  font-size: 26px;
+  font-weight: 700;
+  color: #ffd98a;
+  letter-spacing: 1px;
+}
+.score-kills {
+  font-size: 13px;
+  font-weight: 600;
+  color: #aaa;
+  letter-spacing: 1px;
+}
+.score-kills .kills-num {
+  color: #fff;
+  font-size: 15px;
+}
+
+/* Combo box */
+.combo-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.combo-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #ff9e2c;
+  letter-spacing: 1.5px;
+}
+.combo-suffix {
+  font-size: 13px;
+  color: #ffbf6b;
+  margin-left: 4px;
+}
+.combo-track {
+  width: 140px;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 158, 44, 0.4);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.combo-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ff9e2c, #ff3b30);
+  transition: width 0.05s linear;
+}
+
+/* Overdrive box */
+.overdrive-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  margin-top: 2px;
+}
+.overdrive-header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.overdrive-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #88aaff;
+}
+.overdrive-prompt {
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffff55;
+  animation: prompt-blink 0.6s infinite alternate;
+}
+@keyframes prompt-blink {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+.overdrive-track {
+  width: 160px;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(136, 170, 255, 0.4);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.overdrive-fill {
+  height: 100%;
+  width: 0%;
+  background: #4488ff;
+  transition: width 0.1s linear;
+}
+.overdrive-box.ready .overdrive-fill {
+  background: linear-gradient(90deg, #44aaff, #ffff55);
+}
+.overdrive-box.active .overdrive-label {
+  color: #ffcc00;
+}
+.overdrive-box.active .overdrive-fill {
+  background: linear-gradient(90deg, #ffcc00, #ff4400);
+  animation: overdrive-glow 0.4s infinite alternate;
+}
+@keyframes overdrive-glow {
+  from { filter: brightness(1); }
+  to { filter: brightness(1.4); }
+}
+
+/* Sliders in settings */
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 220px;
+}
+.slider-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+.slider-val {
+  min-width: 44px;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+/* Remap Controls Screen */
+.menu-remap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 80vh;
+}
+.remap-table-wrap {
+  overflow-y: auto;
+  max-height: 55vh;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+}
+.remap-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.remap-table th, .remap-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.remap-table th {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.remap-table tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.rebind-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+.remap-listening {
+  color: #ffff55;
+  font-weight: 700;
+  animation: prompt-blink 0.5s infinite alternate;
+}

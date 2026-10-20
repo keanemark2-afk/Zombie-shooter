@@ -21,13 +21,51 @@ export const PAD = {
   right: 15,
 } as const;
 
-export type Action = 'aim' | 'fire' | 'reload' | 'sprint' | 'melee' | 'knife' | 'pause' | 'nextWeapon' | 'prevWeapon' | 'heal' | 'grenade' | 'nextGrenade' | 'caseOpen' | 'ready' | 'interact';
+export type Action = 'aim' | 'fire' | 'reload' | 'sprint' | 'melee' | 'knife' | 'pause' | 'nextWeapon' | 'prevWeapon' | 'heal' | 'grenade' | 'nextGrenade' | 'caseOpen' | 'ready' | 'interact' | 'overdrive';
 
 export interface Binding {
   keys: string[];
   mouse?: number;
   pad?: number;
 }
+
+export const ACTION_NAMES: Record<Action, string> = {
+  aim: 'Aim weapon',
+  fire: 'Fire weapon',
+  reload: 'Reload',
+  sprint: 'Sprint',
+  melee: 'Melee / Kick',
+  knife: 'Knife strike / Slash',
+  pause: 'Pause / Menu',
+  nextWeapon: 'Next weapon',
+  prevWeapon: 'Previous weapon',
+  heal: 'Use herb / Spray',
+  grenade: 'Throw grenade',
+  nextGrenade: 'Next grenade type',
+  caseOpen: 'Attaché case',
+  ready: 'Ready / Confirm',
+  interact: 'Interact / Talk',
+  overdrive: 'Overdrive',
+};
+
+export const DEFAULT_BINDINGS: Record<Action, Binding> = {
+  aim: { keys: [], mouse: 2, pad: PAD.l2 },
+  fire: { keys: [], mouse: 0, pad: PAD.r2 },
+  reload: { keys: ['KeyR'], pad: PAD.west },
+  sprint: { keys: ['ShiftLeft', 'ShiftRight'], pad: PAD.south },
+  melee: { keys: ['KeyF'], pad: PAD.south },
+  knife: { keys: ['KeyV'], pad: PAD.r1 },
+  pause: { keys: [], pad: PAD.start },
+  nextWeapon: { keys: [], pad: PAD.right },
+  prevWeapon: { keys: [], pad: PAD.left },
+  heal: { keys: ['KeyH'], pad: PAD.north },
+  grenade: { keys: ['KeyG'], pad: PAD.l1 },
+  nextGrenade: { keys: ['KeyB'], pad: PAD.up },
+  caseOpen: { keys: ['Tab'], pad: PAD.select },
+  ready: { keys: ['Enter'], pad: PAD.south },
+  interact: { keys: ['KeyE'], pad: PAD.south },
+  overdrive: { keys: ['KeyQ'], pad: PAD.l3 },
+};
 
 export const bindings: Record<Action, Binding> = {
   aim: { keys: [], mouse: 2, pad: PAD.l2 },
@@ -45,7 +83,23 @@ export const bindings: Record<Action, Binding> = {
   caseOpen: { keys: ['Tab'], pad: PAD.select },
   ready: { keys: ['Enter'], pad: PAD.south },
   interact: { keys: ['KeyE'], pad: PAD.south },
+  overdrive: { keys: ['KeyQ'], pad: PAD.l3 },
 };
+
+export function applyCustomBindings(custom: Record<string, Binding> | null): void {
+  if (!custom) return;
+  for (const [action, b] of Object.entries(custom)) {
+    if (action in bindings && b) {
+      bindings[action as Action] = { ...b };
+    }
+  }
+}
+
+export function resetBindings(): void {
+  for (const [action, b] of Object.entries(DEFAULT_BINDINGS)) {
+    bindings[action as Action] = { ...b };
+  }
+}
 
 /** Keys 1-9 pick a weapon quick-slot directly. */
 export const slotKeys = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'];

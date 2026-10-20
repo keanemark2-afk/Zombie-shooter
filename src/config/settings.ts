@@ -1,10 +1,15 @@
 // Player preferences chosen in the menu's Settings screen (not gameplay
 // numbers - those live in tuning.ts). Saved in the browser between sessions.
 
+import { applyCustomBindings, type Binding } from './controls';
+import { tuning } from './tuning';
+
 export type CrosshairStyle = 'ring' | 'cross' | 'dot' | 'brackets' | 'laser' | 'none';
 export type GunshotSound = 'recorded' | 'synth';
 export type GoreLevel = 'off' | 'stylized' | 'full';
 export type DifficultyId = 'easy' | 'normal' | 'hard' | 'pro';
+export type AimMode = 'classic' | 'modern';
+export type GraphicsQuality = 'high' | 'medium' | 'low';
 
 export interface Settings {
   crosshair: CrosshairStyle;
@@ -18,6 +23,16 @@ export interface Settings {
   gore: GoreLevel;
   /** How hard the game is (enemies hit harder, ammo is scarcer, the chainsaw kills in one hit on the hardest). */
   difficulty: DifficultyId;
+  mouseSensitivity: number;
+  invertY: boolean;
+  aimMode: AimMode;
+  fov: number;
+  volumeMaster: number;
+  volumeEffects: number;
+  volumeMusic: number;
+  volumeVoice: number;
+  graphicsQuality: GraphicsQuality;
+  customBindings: Record<string, Binding> | null;
 }
 
 export const CROSSHAIR_STYLES: Array<{ id: CrosshairStyle; label: string; hint: string }> = [
@@ -57,6 +72,16 @@ const DEFAULTS: Settings = {
   gunshotSound: 'recorded',
   gore: 'full',
   difficulty: 'normal',
+  mouseSensitivity: 0.2,
+  invertY: false,
+  aimMode: 'modern',
+  fov: 62,
+  volumeMaster: 1,
+  volumeEffects: 1,
+  volumeMusic: 1,
+  volumeVoice: 1,
+  graphicsQuality: 'high',
+  customBindings: null,
 };
 
 const KEY = 'deadAcre.settings';
@@ -72,6 +97,16 @@ function load(): Settings {
     if (saved.gunshotSound === 'recorded' || saved.gunshotSound === 'synth') s.gunshotSound = saved.gunshotSound;
     if (GORE_LEVELS.some((g) => g.id === saved.gore)) s.gore = saved.gore!;
     if (saved.difficulty === 'easy' || saved.difficulty === 'normal' || saved.difficulty === 'hard' || saved.difficulty === 'pro') s.difficulty = saved.difficulty;
+    if (typeof saved.mouseSensitivity === 'number') s.mouseSensitivity = saved.mouseSensitivity;
+    if (typeof saved.invertY === 'boolean') s.invertY = saved.invertY;
+    if (saved.aimMode === 'classic' || saved.aimMode === 'modern') s.aimMode = saved.aimMode;
+    if (typeof saved.fov === 'number') s.fov = saved.fov;
+    if (typeof saved.volumeMaster === 'number') s.volumeMaster = saved.volumeMaster;
+    if (typeof saved.volumeEffects === 'number') s.volumeEffects = saved.volumeEffects;
+    if (typeof saved.volumeMusic === 'number') s.volumeMusic = saved.volumeMusic;
+    if (typeof saved.volumeVoice === 'number') s.volumeVoice = saved.volumeVoice;
+    if (saved.graphicsQuality === 'high' || saved.graphicsQuality === 'medium' || saved.graphicsQuality === 'low') s.graphicsQuality = saved.graphicsQuality;
+    if (saved.customBindings && typeof saved.customBindings === 'object') s.customBindings = saved.customBindings;
   } catch {
     // No saved settings (or the browser blocks storage): use the defaults.
   }
@@ -79,6 +114,30 @@ function load(): Settings {
 }
 
 export const settings: Settings = load();
+
+/** Applies current preferences into the live gameplay tuning and controls. */
+export function applySettingsToGame(): void {
+  tuning.controls.mouseSensitivity = settings.mouseSensitivity;
+  tuning.controls.invertY = settings.invertY;
+  tuning.player.classicAim = settings.aimMode === 'classic';
+  tuning.camera.fov = settings.fov;
+  if (settings.graphicsQuality === 'low') {
+    tuning.graphics.shadows = false;
+    tuning.graphics.maxPixelRatio = 0.75;
+  } else if (settings.graphicsQuality === 'medium') {
+    tuning.graphics.shadows = true;
+    tuning.graphics.maxPixelRatio = 1.0;
+  } else {
+    tuning.graphics.shadows = true;
+    tuning.graphics.maxPixelRatio = 1.5;
+  }
+  if (settings.customBindings) {
+    applyCustomBindings(settings.customBindings);
+  }
+}
+
+// Initial apply
+applySettingsToGame();
 
 export function saveSettings(): void {
   try {

@@ -1,6 +1,8 @@
 import type { ZoneGroup } from '../combat/damage';
 import { settings } from '../config/settings';
 import { Crosshair } from './crosshair';
+import type { ScoreAttackDirector } from '../modes/scoreAttack';
+import { tuning } from '../config/tuning';
 
 export interface RangeStats {
   shots: number;
@@ -57,6 +59,16 @@ export class Hud {
   private readonly traderKey: HTMLSpanElement;
   private readonly traderLabel: HTMLSpanElement;
   private readonly blind: HTMLDivElement;
+  private readonly scoreHud: HTMLDivElement;
+  private readonly scoreClock: HTMLDivElement;
+  private readonly scoreNum: HTMLDivElement;
+  private readonly killsNum: HTMLSpanElement;
+  private readonly comboBox: HTMLDivElement;
+  private readonly comboVal: HTMLSpanElement;
+  private readonly comboFill: HTMLDivElement;
+  private readonly overdriveBox: HTMLDivElement;
+  private readonly overdriveFill: HTMLDivElement;
+  private readonly overdrivePrompt: HTMLSpanElement;
   /** 0..1: how blinded you are by a flash (fades by itself). */
   private blindLevel = 0;
   private blindFade = 1;
@@ -72,6 +84,24 @@ export class Hud {
       <div class="scope" hidden><div class="scope-cross"><i class="h"></i><i class="v"></i><b></b></div></div>
       <div class="melee-prompt" hidden><span class="key">F</span><span class="label">Kick</span></div>
       <div class="trader-marker" hidden><span class="key">E</span><span class="label">Trade</span></div>
+      <div class="score-hud" hidden>
+        <div class="score-clock">02:00</div>
+        <div class="score-display">
+          <div class="score-num">0</div>
+          <div class="score-kills">KILLS <span class="kills-num">0</span> / 150</div>
+        </div>
+        <div class="combo-box" hidden>
+          <div class="combo-title"><span class="combo-val">1</span><span class="combo-suffix">x COMBO</span></div>
+          <div class="combo-track"><div class="combo-fill"></div></div>
+        </div>
+        <div class="overdrive-box">
+          <div class="overdrive-header">
+            <span class="overdrive-label">OVERDRIVE</span>
+            <span class="overdrive-prompt" hidden>PRESS Q</span>
+          </div>
+          <div class="overdrive-track"><div class="overdrive-fill"></div></div>
+        </div>
+      </div>
       <div class="grab-prompt" hidden>
         <div class="grab-title">GRABBED!</div>
         <div class="grab-text"></div>
@@ -137,6 +167,16 @@ export class Hud {
     this.danger = q('.danger-vignette');
     this.coins = q('.coin-counter');
     this.grenadeBox = q('.grenade-box');
+    this.scoreHud = q('.score-hud');
+    this.scoreClock = q('.score-clock');
+    this.scoreNum = q('.score-num');
+    this.killsNum = q('.kills-num');
+    this.comboBox = q('.combo-box');
+    this.comboVal = q('.combo-val');
+    this.comboFill = q('.combo-fill');
+    this.overdriveBox = q('.overdrive-box');
+    this.overdriveFill = q('.overdrive-fill');
+    this.overdrivePrompt = q('.overdrive-prompt');
     this.root.hidden = true;
   }
 
@@ -344,6 +384,46 @@ export class Hud {
 
   setHint(text: string): void {
     this.hint.textContent = text;
+  }
+
+  updateScoreAttack(director: ScoreAttackDirector | null): void {
+    if (!director || director.state.ended) {
+      this.scoreHud.hidden = true;
+      return;
+    }
+    this.scoreHud.hidden = false;
+    const s = director.state;
+    const mins = Math.floor(s.timeRemaining / 60);
+    const secs = Math.floor(s.timeRemaining % 60);
+    this.scoreClock.textContent = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    this.scoreClock.classList.toggle('urgent', s.timeRemaining < 30);
+    this.scoreNum.textContent = s.score.toLocaleString('en-US');
+    this.killsNum.textContent = String(s.kills);
+
+    // Combo bar
+    if (s.combo > 1) {
+      this.comboBox.hidden = false;
+      this.comboVal.textContent = String(s.combo);
+      const frac = Math.max(0, Math.min(1, s.comboTimer / tuning.scoreAttack.comboDuration));
+      this.comboFill.style.width = `${Math.round(frac * 100)}%`;
+    } else {
+      this.comboBox.hidden = true;
+    }
+
+    // Overdrive bar
+    if (director.inOverdrive) {
+      this.overdriveBox.classList.add('active');
+      this.overdrivePrompt.hidden = true;
+      const frac = Math.max(0, Math.min(1, s.overdriveTimer / tuning.scoreAttack.overdriveDuration));
+      this.overdriveFill.style.width = `${Math.round(frac * 100)}%`;
+    } else {
+      this.overdriveBox.classList.remove('active');
+      const frac = Math.max(0, Math.min(1, s.overdriveGauge));
+      this.overdriveFill.style.width = `${Math.round(frac * 100)}%`;
+      const ready = frac >= 0.99;
+      this.overdriveBox.classList.toggle('ready', ready);
+      this.overdrivePrompt.hidden = !ready;
+    }
   }
 
   update(dt: number): void {
